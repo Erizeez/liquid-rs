@@ -1,0 +1,22 @@
+[package]
+name = "liquid-glass-scene"
+description = "Renderer-independent scene model for Liquid Glass components."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.0" }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+float_cmp = "allow"

@@ -1,0 +1,34 @@
+[package]
+name = "liquid-glass-render"
+description = "GPU compositor foundation for Liquid Glass."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytemuck = { version = "1.24.0", features = ["derive"] }
+liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.0" }
+vibrancy-rs = { git = "https://github.com/Erizeez/vibrancy-rs.git", tag = "v0.1.0", version = "0.1.0" }
+wgpu = { version = "27.0.1", features = ["noop"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+too_many_arguments = "allow"
+too_many_lines = "allow"
+match_same_arms = "allow"
+float_cmp = "allow"
+missing_errors_doc = "allow"
+needless_raw_string_hashes = "allow"

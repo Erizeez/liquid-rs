@@ -1,0 +1,18 @@
+[package]
+name = "liquid-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Framework-agnostic real-time Liquid Glass rendering engine and GPU shader compositor"
+
+[dependencies]
+liquid-glass-animation = { path = "../liquid-glass-animation", version = "0.1.0" }
+liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.0" }
+liquid-glass-render = { path = "../liquid-glass-render", version = "0.1.0" }
+liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.0" }
+
+[lints]
+workspace = true

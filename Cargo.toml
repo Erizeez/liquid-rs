@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/liquid-rs",
+    "crates/liquid-glass-animation",
+    "crates/liquid-glass-geometry",
+    "crates/liquid-glass-render",
+    "crates/liquid-glass-scene",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+authors = ["Erizeez <zhangyongcheng@sjtu.edu.cn>"]
+repository = "https://github.com/Erizeez/liquid-rs"
+homepage = "https://github.com/Erizeez/liquid-rs"
+readme = "README.md"
+keywords = ["rust", "graphics", "wgpu", "liquid-glass", "shaders"]
+categories = ["graphics", "rendering"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "allow"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,15 @@
+[package]
+name = "liquid-glass-geometry"
+description = "Renderer-independent continuous-corner and capsule geometry for Liquid Glass."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+squircle-rs = { git = "https://github.com/Erizeez/squircle-rs", tag = "v0.1.1" }

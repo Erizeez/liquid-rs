@@ -1,0 +1,7 @@
+liquid-rs
+Copyright (c) 2026 Erizeez
+
+This project includes and ports WGSL shaders and graphics algorithms from:
+- liquid-glass-studio (https://github.com/charlesyin/liquid-glass-studio)
+  Copyright (c) 2024 Charles Yin
+  Licensed under the MIT License.
