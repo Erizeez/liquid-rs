@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 bytemuck = { version = "1.24.0", features = ["derive"] }
-liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.2" }
+liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.3" }
 squircle-rs = { git = "https://github.com/Erizeez/squircle-rs", tag = "v0.1.2" }
 vibrancy-rs = { git = "https://github.com/Erizeez/vibrancy-rs.git", tag = "v0.1.1", version = "0.1.1" }
 wgpu = { version = "27.0.1", features = ["noop"] }

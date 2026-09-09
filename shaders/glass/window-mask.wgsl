@@ -23,5 +23,7 @@ fn fs_main(@location(0) v_uv: vec2f) -> @location(0) vec4f {
   // Use squircle-rs analytical continuous curvature SDF with Apple standard smoothing (0.6)
   let distance = sd_squircle(p, half_size, u.radius, 0.6);
   let coverage = 1.0 - smoothstep(-1.0, 1.0, distance);
-  return vec4f(source.rgb, source.a * coverage);
+  // Must premultiply RGB with coverage so that transparent pixels outside the continuous
+  // corner mask are completely clear black (0,0,0,0) without bleeding wallpaper/content artifacts.
+  return source * coverage;
 }
