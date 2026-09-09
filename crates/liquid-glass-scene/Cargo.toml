@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.0" }
+liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.1" }
 
 [lints.rust]
 unsafe_code = "forbid"
