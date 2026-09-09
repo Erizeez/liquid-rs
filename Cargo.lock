@@ -434,35 +434,36 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "liquid-glass-animation"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "liquid-glass-geometry"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "squircle-rs",
 ]
 
 [[package]]
 name = "liquid-glass-render"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytemuck",
  "liquid-glass-scene",
+ "squircle-rs",
  "vibrancy-rs",
  "wgpu",
 ]
 
 [[package]]
 name = "liquid-glass-scene"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "liquid-glass-geometry",
 ]
 
 [[package]]
 name = "liquid-rs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "liquid-glass-animation",
  "liquid-glass-geometry",
@@ -877,8 +878,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibrancy-rs"
-version = "0.1.0"
-source = "git+https://github.com/Erizeez/vibrancy-rs.git?tag=v0.1.0#4ad47c163c6b8df1294d70d3c5755f34966def62"
+version = "0.1.1"
+source = "git+https://github.com/Erizeez/vibrancy-rs.git?tag=v0.1.1#f1dd6b96c074b11327ed28319d0ad35a938f75dd"
 
 [[package]]
 name = "wasm-bindgen"

@@ -3243,8 +3243,9 @@ fn create_window_mask_pipeline(
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("liquid-glass rounded window mask shader"),
         source: wgpu::ShaderSource::Wgsl(Cow::Owned(format!(
-            "{}\n{}",
+            "{}\n{}\n{}",
             include_str!("../../../shaders/glass/reference/vertex.wgsl"),
+            squircle_rs::wgsl_squircle_sdf_source(),
             include_str!("../../../shaders/glass/window-mask.wgsl"),
         ))),
     });

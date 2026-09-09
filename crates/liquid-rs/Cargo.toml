@@ -9,10 +9,10 @@ repository.workspace = true
 description = "Framework-agnostic real-time Liquid Glass rendering engine and GPU shader compositor"
 
 [dependencies]
-liquid-glass-animation = { path = "../liquid-glass-animation", version = "0.1.1" }
-liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.1" }
-liquid-glass-render = { path = "../liquid-glass-render", version = "0.1.1" }
-liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.1" }
+liquid-glass-animation = { path = "../liquid-glass-animation", version = "0.1.2" }
+liquid-glass-geometry = { path = "../liquid-glass-geometry", version = "0.1.2" }
+liquid-glass-render = { path = "../liquid-glass-render", version = "0.1.2" }
+liquid-glass-scene = { path = "../liquid-glass-scene", version = "0.1.2" }
 
 [lints]
 workspace = true
