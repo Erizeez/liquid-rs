@@ -20,9 +20,6 @@ const FEATURE_REDUCED_MOTION: i32 = 1 << 3;
 const FEATURE_CLEAR_VARIANT: i32 = 1 << 4;
 const FEATURE_TRAFFIC_LIGHT: i32 = 1 << 5;
 const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 1 << 6;
-// A traffic-light material uses the calibrated light titlebar as its optical
-// reference, while its final pixels are still composited over the real scene.
-const FEATURE_TRAFFIC_LIGHT_REFERENCE: i32 = 1 << 7;
 const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 1 << 8;
 
 const FULLSCREEN_VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &[wgpu::VertexAttribute {
@@ -2546,20 +2543,13 @@ fn uniform_for_node(
     if material.variant == GlassVariant::Clear {
         feature_flags |= FEATURE_CLEAR_VARIANT;
     }
-    if material.variant == GlassVariant::TrafficLight {
-        feature_flags |= FEATURE_TRAFFIC_LIGHT;
-    }
     if material.variant == GlassVariant::TrafficLightBead {
         // Shares the traffic-light antialiasing, glyph treatment, and the exact
-        // circular SDF path the physical variant uses -- that path is what makes
+        // circular SDF path the physical variant used -- that path is what makes
         // the silhouette a whole circle rather than a slice of the generic
         // capsule. The shader still returns early instead of composing glass.
         feature_flags |=
             FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_PHYSICAL | FEATURE_TRAFFIC_LIGHT_BEAD;
-    }
-    if material.variant == GlassVariant::TrafficLightPhysical {
-        feature_flags |= FEATURE_TRAFFIC_LIGHT_PHYSICAL;
-        feature_flags |= FEATURE_TRAFFIC_LIGHT_REFERENCE;
     }
     let interaction = if accessibility.reduced_motion { 0.0 } else { node.interaction.strength() };
     let pointer_x = node.bounds.x + node.bounds.width * node.interaction.pointer[0];

@@ -111,28 +111,14 @@ const FEATURE_REDUCED_MOTION: i32 = 8;
 const FEATURE_CLEAR_VARIANT: i32 = 16;
 const FEATURE_TRAFFIC_LIGHT: i32 = 32;
 const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 64;
-const FEATURE_TRAFFIC_LIGHT_REFERENCE: i32 = 128;
 const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 256;
 // Texture sampling from the renderer's sRGB target returns linear values.
-// These are the linear-light equivalents of the light macOS window substrate
-// used to calibrate the traffic-light material (0.95, 0.95, 0.965 sRGB).
-const TRAFFIC_LIGHT_REFERENCE_BACKDROP: vec3f = vec3f(0.8900, 0.8900, 0.9180);
-
 fn featureEnabled(flag: i32) -> bool {
   return (u.u_featureFlags & flag) != 0;
 }
 
 fn isTrafficLightBead() -> bool {
   return featureEnabled(FEATURE_TRAFFIC_LIGHT_BEAD);
-}
-
-fn usesTrafficLightReferenceBackdrop() -> bool {
-  return featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL)
-    && featureEnabled(FEATURE_TRAFFIC_LIGHT_REFERENCE);
-}
-
-fn trafficLightReferenceBackdrop() -> vec3f {
-  return TRAFFIC_LIGHT_REFERENCE_BACKDROP;
 }
 
 fn sampleActualBackdrop(v_uv: vec2f) -> vec4f {
@@ -627,9 +613,6 @@ fn vec2ToAngle(v: vec2f) -> f32 {
 }
 
 fn sampleBlurred(v_uv: vec2f, offset: vec2f) -> vec4f {
-  if (usesTrafficLightReferenceBackdrop()) {
-    return vec4f(trafficLightReferenceBackdrop(), 1.0);
-  }
   if (u.u_bgType == 12 && u.u_bgTextureReady != 1) {
     // The OS owns the pixels behind a transparent window. Without a captured
     // desktop frame, keep a tinted translucent surface instead of painting a
@@ -642,12 +625,6 @@ fn sampleBlurred(v_uv: vec2f, offset: vec2f) -> vec4f {
 
 fn getTextureDispersion(v_uv: vec2f, mixRate: f32, offset: vec2f, factor: f32) -> vec4f {
   var pixel = vec4f(1.0);
-  if (usesTrafficLightReferenceBackdrop()) {
-    // Keep this reference substrate spatially uniform. The traffic-light
-    // body still evaluates its normal/refraction path, but dark-mode scene
-    // pixels cannot alter the calibrated button material.
-    return vec4f(trafficLightReferenceBackdrop(), 1.0);
-  }
   if (u.u_bgType == 12 && u.u_bgTextureReady != 1) {
     // The first transparent layer has no sampleable desktop backdrop yet.
     // Later layers use bgType 13 and continue sampling the prior composite.
@@ -685,9 +662,6 @@ fn backdropStatsActual(v_uv: vec2f) -> vec2f {
 }
 
 fn backdropStats(v_uv: vec2f) -> vec2f {
-  if (usesTrafficLightReferenceBackdrop()) {
-    return vec2f(luminance(trafficLightReferenceBackdrop()), 0.0);
-  }
   if (u.u_bgType == 12 && u.u_bgTextureReady != 1) {
     return vec2f(u.u_environmentLuminance, 0.0);
   }
@@ -705,9 +679,6 @@ fn backdropStats(v_uv: vec2f) -> vec2f {
 }
 
 fn ambientBackdrop(v_uv: vec2f) -> vec3f {
-  if (usesTrafficLightReferenceBackdrop()) {
-    return trafficLightReferenceBackdrop();
-  }
   if (u.u_bgType == 12 && u.u_bgTextureReady != 1) {
     return u.u_tint.rgb;
   }
@@ -1452,12 +1423,8 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       // and edge absorption. The tint supplies the wavelength, while the
       // scalar body response supplies only the material energy.
       outColor = vec4f(outColor.rgb + u.u_tint.rgb * body.uniformLight, outColor.a);
-      if (u.u_bgTextureReady == 1 || usesTrafficLightReferenceBackdrop()) {
-        let clearBackdrop = select(
-          sampleActualBackdrop(v_uv).rgb,
-          trafficLightReferenceBackdrop(),
-          usesTrafficLightReferenceBackdrop(),
-        );
+      if (u.u_bgTextureReady == 1) {
+        let clearBackdrop = sampleActualBackdrop(v_uv).rgb;
         let compensatedBackdrop = trafficLightTransmissionBackdrop(outColor.rgb, clearBackdrop);
         outColor = vec4f(mix(outColor.rgb, compensatedBackdrop, body.transmission), outColor.a);
       }

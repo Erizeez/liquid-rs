@@ -82,17 +82,14 @@ impl Default for Color {
 ///
 /// `Regular` is the more substantial system surface. `Clear` keeps the
 /// backdrop more legible and is intended for controls that should sit lightly
-/// above content. `TrafficLight` is a deliberately narrow semantic variant
-/// for the enhanced macOS-style red/yellow/green window buttons. The physical
-/// experiment uses `TrafficLightPhysical`: it selects only a spherical SDF
-/// normal while retaining the stock material response.
+/// above content. `TrafficLightBead` is the macOS-style red/yellow/green window
+/// button: a flat, screen-space bead evaluated per pixel rather than composed as
+/// physical glass.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum GlassVariant {
     #[default]
     Regular,
     Clear,
-    TrafficLight,
-    TrafficLightPhysical,
     /// Flat, screen-space bead: the reference traffic-light appearance evaluated
     /// per pixel instead of composed as physical glass.
     TrafficLightBead,
