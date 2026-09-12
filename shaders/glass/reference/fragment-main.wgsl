@@ -231,34 +231,41 @@ fn continuousCapsuleSDF(
   return (transverse - profile) / sqrt(1.0 + slope * slope);
 }
 
+/// The node's own primary silhouette, before shape 1 and any fused layer are
+/// merged in.
+///
+/// The reference bead carves its disc from this rather than from the merged
+/// field, so neither a fused secondary shape nor the shape-1 debug circle can
+/// widen its coverage.
+fn shapeSDF(p2: vec2f, p: vec2f) -> f32 {
+  let p2n = p2 + p / u.u_resolution.y;
+  if (u.u_shapeRoundness < 0.0) {
+    return continuousCapsuleSDF(
+      p2n,
+      vec2f(0.0),
+      u.u_shapeWidth / u.u_resolution.y,
+      u.u_shapeHeight / u.u_resolution.y,
+    );
+  }
+  return roundedRectSDF(
+    p2n,
+    vec2f(0.0),
+    u.u_shapeWidth / u.u_resolution.y,
+    u.u_shapeHeight / u.u_resolution.y,
+    u.u_shapeRadius / u.u_resolution.y,
+    u.u_shapeRoundness,
+  );
+}
+
 fn mainSDF(p1: vec2f, p2: vec2f, p: vec2f) -> f32 {
   let p1n = p1 + p / u.u_resolution.y;
-  let p2n = p2 + p / u.u_resolution.y;
   var d1: f32;
   if (u.u_showShape1 == 1) {
     d1 = sdCircle(p1n, 100.0 * u.u_dpr / u.u_resolution.y);
   } else {
     d1 = 1.0;
   }
-  var d2: f32;
-  if (u.u_shapeRoundness < 0.0) {
-    d2 = continuousCapsuleSDF(
-      p2n,
-      vec2f(0.0),
-      u.u_shapeWidth / u.u_resolution.y,
-      u.u_shapeHeight / u.u_resolution.y,
-    );
-  } else {
-    d2 = roundedRectSDF(
-      p2n,
-      vec2f(0.0),
-      u.u_shapeWidth / u.u_resolution.y,
-      u.u_shapeHeight / u.u_resolution.y,
-      u.u_shapeRadius / u.u_resolution.y,
-      u.u_shapeRoundness,
-    );
-  }
-  var merged = smin(d1, d2, u.u_mergeRate);
+  var merged = smin(d1, shapeSDF(p2, p), u.u_mergeRate);
   for (var fusedIndex = 0; fusedIndex < 4; fusedIndex += 1) {
     if (u.u_fusedGeometry[fusedIndex].z > 0.5) {
       let fusedCenter = (vec2f(0.0) - u.u_fusedBounds[fusedIndex].xy) / u.u_resolution.y;
@@ -1147,6 +1154,12 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
   // is no backdrop transmission, refraction, or Fresnel -- so the control reads
   // as a baked bead rather than a glass node.
   if (isTrafficLightBead()) {
+    let beadBackdrop = sampleActualBackdrop(v_uv);
+    // Carve the disc from the node's own silhouette. The merged field also
+    // contains shape 1 and every fused layer, so using it as the coverage made
+    // the bead paint whatever the group happened to merge into.
+    let beadSdf = shapeSDF(p2, pixel);
+    let beadCoverage = 1.0 - smoothstep(-antialiasWidth, antialiasWidth, beadSdf);
     // Derive the offset from the same control point the SDF uses (`p2` is the
     // shape centre in the space `mainSDF` consumes), so the bead can never
     // disagree with the shape's position and radius. Working in that normalised
@@ -1156,13 +1169,11 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       min(u.u_shapeWidth, u.u_shapeHeight) * 0.5 / u.u_resolution.y,
       1e-6,
     );
-    let distN = length(beadOffset);
     let nx = beadOffset.x / beadRadiusN;
     let ny = beadOffset.y / beadRadiusN;
     // Back to physical pixels for the pixel-wide rim spans.
     let beadRadius = beadRadiusN * u.u_resolution.y;
-    let dist = distN * u.u_resolution.y;
-    let inside = beadRadius - dist;
+    let inside = beadRadius - length(beadOffset) * u.u_resolution.y;
 
     var bead = u.u_tint.rgb;
     if (inside > 0.0) {
@@ -1200,7 +1211,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
         * (52.0 / 255.0) * sideWall * clamp(u.u_beadB.z, 0.0, 3.0);
       let edgeSpan = max(span * clamp(u.u_beadB.w, 0.5, 2.0), 1.0);
       let sharp = pow(1.0 - clamp(inside / edgeSpan, 0.0, 1.0), 3.0) * 0.95;
-      let halo = pow(1.0 - clamp(dist / beadRadius, 0.0, 1.0), 2.0) * 0.06;
+      let halo = pow(1.0 - clamp(inside / beadRadius, 0.0, 1.0), 2.0) * 0.06;
       let bright = (sharp + halo)
         * pow(clamp(abs(ny), 0.0, 1.0), 1.8)
         * clamp(u.u_beadB.y, 0.0, 2.0);
@@ -1209,7 +1220,16 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       bead = colour;
     }
 
-    return vec4f(bead, shapeAlpha * clamp(u.u_opacity, 0.0, 1.0));
+    // Re-emit the sampled backdrop outside the disc. The glass pass replaces
+    // the target instead of blending into it, so returning the bead tint with a
+    // zero alpha still painted the full effect quad: that is what left a solid
+    // tinted square behind the control. Compositing here is the same contract
+    // the physical path below uses.
+    let beadOpacity = beadCoverage * clamp(u.u_opacity, 0.0, 1.0);
+    return vec4f(
+      mix(beadBackdrop.rgb, bead, beadOpacity),
+      mix(beadBackdrop.a, 1.0, beadOpacity),
+    );
   }
   let stats = backdropStats(v_uv);
   let contentContrast = clamp(max(stats.y, abs(stats.x - u.u_environmentLuminance) * 0.35), 0.0, 1.0);
