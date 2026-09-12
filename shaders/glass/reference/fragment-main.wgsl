@@ -1147,39 +1147,21 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
   // is no backdrop transmission, refraction, or Fresnel -- so the control reads
   // as a baked bead rather than a glass node.
   if (isTrafficLightBead()) {
-    // Per-control circle. `shapeAlpha` is the *merged group* silhouette, so it
-    // cannot give one control's disc; the per-control centres and sizes live in
-    // the fused-shape slots (physical pixels, y-up -- the same space `pixel`
-    // is in). Pick the nearest slot. Indices are constant because a uniform
-    // array cannot be indexed dynamically.
-    let beadD0 = distance(pixel, u.u_fusedBounds[0].xy);
-    let beadD1 = distance(pixel, u.u_fusedBounds[1].xy);
-    let beadD2 = distance(pixel, u.u_fusedBounds[2].xy);
-    let beadD3 = distance(pixel, u.u_fusedBounds[3].xy);
-    var beadSlot = 0;
-    var beadBest = beadD0;
-    if (beadD1 < beadBest) { beadBest = beadD1; beadSlot = 1; }
-    if (beadD2 < beadBest) { beadBest = beadD2; beadSlot = 2; }
-    if (beadD3 < beadBest) { beadBest = beadD3; beadSlot = 3; }
-    var beadCentre = u.u_fusedBounds[0].xy;
-    var beadExtent = min(u.u_fusedBounds[0].z, u.u_fusedBounds[0].w);
-    if (beadSlot == 1) {
-      beadCentre = u.u_fusedBounds[1].xy;
-      beadExtent = min(u.u_fusedBounds[1].z, u.u_fusedBounds[1].w);
-    }
-    if (beadSlot == 2) {
-      beadCentre = u.u_fusedBounds[2].xy;
-      beadExtent = min(u.u_fusedBounds[2].z, u.u_fusedBounds[2].w);
-    }
-    if (beadSlot == 3) {
-      beadCentre = u.u_fusedBounds[3].xy;
-      beadExtent = min(u.u_fusedBounds[3].z, u.u_fusedBounds[3].w);
-    }
-    let beadRadius = max(beadExtent * 0.5, 1.0);
-    let beadOffset = pixel - beadCentre;
-    let dist = length(beadOffset);
-    let nx = beadOffset.x / beadRadius;
-    let ny = beadOffset.y / beadRadius;
+    // Derive the offset from the same control point the SDF uses (`p2` is the
+    // shape centre in the space `mainSDF` consumes), so the bead can never
+    // disagree with the shape's position and radius. Working in that normalised
+    // space avoids re-deriving the screen transform by hand.
+    let beadOffset = (vec2f(0.0) - pixel) / u.u_resolution.y - p2;
+    let beadRadiusN = max(
+      min(u.u_shapeWidth, u.u_shapeHeight) * 0.5 / u.u_resolution.y,
+      1e-6,
+    );
+    let distN = length(beadOffset);
+    let nx = beadOffset.x / beadRadiusN;
+    let ny = beadOffset.y / beadRadiusN;
+    // Back to physical pixels for the pixel-wide rim spans.
+    let beadRadius = beadRadiusN * u.u_resolution.y;
+    let dist = distN * u.u_resolution.y;
     let inside = beadRadius - dist;
 
     var bead = u.u_tint.rgb;
@@ -1227,10 +1209,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       bead = colour;
     }
 
-    // Antialias the sphere's own edge rather than the merged silhouette.
-    let beadEdge = max(fwidth(dist), 1.0);
-    let beadAlpha = 1.0 - smoothstep(beadRadius - beadEdge, beadRadius + beadEdge, dist);
-    return vec4f(bead, beadAlpha * clamp(u.u_opacity, 0.0, 1.0));
+    return vec4f(bead, shapeAlpha * clamp(u.u_opacity, 0.0, 1.0));
   }
   let stats = backdropStats(v_uv);
   let contentContrast = clamp(max(stats.y, abs(stats.x - u.u_environmentLuminance) * 0.35), 0.0, 1.0);
