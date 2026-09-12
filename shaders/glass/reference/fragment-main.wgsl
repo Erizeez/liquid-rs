@@ -1147,6 +1147,8 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
   // is no backdrop transmission, refraction, or Fresnel -- so the control reads
   // as a baked bead rather than a glass node.
   if (isTrafficLightBead()) {
+    // TEMP DEBUG: is this branch reached at all?
+    return vec4f(vec3f(1.0, 0.0, 1.0), 1.0);
     // Derive the offset from the same control point the SDF uses (`p2` is the
     // shape centre in the space `mainSDF` consumes), so the bead can never
     // disagree with the shape's position and radius. Working in that normalised
