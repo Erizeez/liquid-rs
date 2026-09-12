@@ -129,7 +129,7 @@ struct GlassUniform {
     // [side-edge width multiplier, lower-light softness, side bias,
     // side-angle in degrees].
     traffic_light_edge: [f32; 4],
-    press_response: [f32; 4],
+    interaction_response: [f32; 4],
 }
 
 #[repr(C)]
@@ -2668,10 +2668,10 @@ fn uniform_for_node(
             material.traffic_light.edge_side_bias.clamp(0.0, 1.0),
             material.traffic_light.edge_side_angle.clamp(10.0, 80.0),
         ],
-        press_response: [
-            material.press.body_gain.clamp(0.0, 1.0),
-            material.press.body_lift.clamp(0.0, 1.0),
-            0.0,
+        interaction_response: [
+            material.interaction.hover_gain.clamp(0.0, 1.0),
+            material.interaction.press_gain.clamp(0.0, 1.0),
+            material.interaction.press_lift.clamp(0.0, 1.0),
             0.0,
         ],
     }

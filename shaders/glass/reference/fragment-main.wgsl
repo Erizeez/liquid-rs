@@ -82,9 +82,9 @@ struct Uniforms {
   u_trafficLight: vec4f,
   u_trafficLightLight: vec4f,
   u_trafficLightEdge: vec4f,
-  // x: whole-control press gain, y: tint-hued press lift
-  // (`GlassMaterial::press`).
-  u_pressResponse: vec4f,
+  // x: hover gain, y: press gain, z: tint-hued press lift
+  // (`GlassMaterial::interaction`).
+  u_interactionResponse: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -1299,20 +1299,27 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     }
 
     if (isTrafficLight() && !featureEnabled(FEATURE_REDUCED_MOTION)) {
-      // Whole-control press brightening, driven by `GlassMaterial::press`.
+      // Whole-control interaction brightening, driven by
+      // `GlassMaterial::interaction`.
       //
       // This runs *after* the body response on purpose: the sphere's lower half
       // is transmission-mixed and its rim carries the absorbing curvature
       // shadow, so an earlier gain would brighten only part of the control. A
-      // single uniform gain on the composed body is what makes a press read as
-      // "the control lit up" instead of "a highlight moved in". It is applied
-      // after the shadow terms too, so the dark perimeter keeps its relative
-      // depth while the whole control rises together.
+      // single uniform gain on the composed body is what makes hover and press
+      // read as "the control lit up" instead of "a highlight moved in". It is
+      // applied after the shadow terms too, so the dark perimeter keeps its
+      // relative depth while the whole control rises together.
+      //
+      // `u_interaction` is `max(hover, press, focus)`, so the hover term is
+      // already engaged while the control is held; the press terms add to it.
+      let engaged = clamp(u.u_interaction, 0.0, 1.0);
       let trafficPress = clamp(u.u_press, 0.0, 1.0);
-      if (trafficPress > 0.0) {
+      let gain = u.u_interactionResponse.x * engaged
+        + u.u_interactionResponse.y * trafficPress;
+      let lift = u.u_interactionResponse.z * trafficPress;
+      if (gain > 0.0 || lift > 0.0) {
         outColor = vec4f(
-          outColor.rgb * (1.0 + u.u_pressResponse.x * trafficPress)
-            + u.u_tint.rgb * (u.u_pressResponse.y * trafficPress),
+          outColor.rgb * (1.0 + gain) + u.u_tint.rgb * lift,
           outColor.a,
         );
       }
