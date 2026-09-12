@@ -532,6 +532,45 @@ impl ShadowStyle {
     }
 }
 
+/// The centre light of a spherical glass body.
+///
+/// The sphere is lit from inside: a uniform incident field across the body,
+/// plus a smaller release toward the optically thinner lower hemisphere. These
+/// are the strengths a host tunes to judge how lit the centre of a control
+/// reads against its rim.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoreLight {
+    /// Strength of the uniform incident field across the body. This is the
+    /// dominant term for how bright the centre reads.
+    pub uniform_light: f32,
+    /// Additional release of the same field toward the thinner lower
+    /// hemisphere.
+    pub thin_light_gain: f32,
+}
+
+impl CoreLight {
+    /// The calibrated default.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { uniform_light: 0.045, thin_light_gain: 0.055 }
+    }
+
+    /// Clamps both strengths into range.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            uniform_light: self.uniform_light.clamp(0.0, 1.0),
+            thin_light_gain: self.thin_light_gain.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Default for CoreLight {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// How a glass control's *material* responds to pointer engagement.
 ///
 /// Engagement is a whole-control brightening, not a highlight: the composed
@@ -617,6 +656,8 @@ pub struct GlassMaterial {
     pub adaptive: AdaptiveStyle,
     /// Whole-control brightening applied while the pointer engages the control.
     pub interaction: InteractionResponse,
+    /// Centre light of a spherical body (traffic-light variants).
+    pub core_light: CoreLight,
 }
 
 impl GlassMaterial {
@@ -644,6 +685,7 @@ impl GlassMaterial {
             shadow: ShadowStyle::none(),
             adaptive: AdaptiveStyle::system(),
             interaction: InteractionResponse::new(),
+            core_light: CoreLight::new(),
         }
     }
 

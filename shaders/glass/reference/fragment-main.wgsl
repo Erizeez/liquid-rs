@@ -19,8 +19,6 @@ const TRAFFIC_LIGHT_CLEAR_COAT_WIDTH: f32 = 1.20;
 const TRAFFIC_LIGHT_COATING_BAND: f32 = 4.80;
 const TRAFFIC_LIGHT_BASE_FRESNEL_RANGE: f32 = 24.0;
 const TRAFFIC_LIGHT_MIN_THICKNESS: f32 = 0.58;
-const TRAFFIC_LIGHT_UNIFORM_LIGHT: f32 = 0.045;
-const TRAFFIC_LIGHT_THIN_LIGHT_GAIN: f32 = 0.055;
 const TRAFFIC_LIGHT_VERTICAL_LIGHT_FACTOR: f32 = 0.18;
 const TRAFFIC_LIGHT_EDGE_DARKNESS: f32 = 1.08;
 const TRAFFIC_LIGHT_EDGE_SHARPNESS: f32 = 8.00;
@@ -85,6 +83,9 @@ struct Uniforms {
   // x: hover gain, y: press gain, z: tint-hued press lift
   // (`GlassMaterial::interaction`).
   u_interactionResponse: vec4f,
+  // x: uniform incident field, y: lower-hemisphere thin light gain
+  // (`GlassMaterial::core_light`).
+  u_coreLight: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -857,9 +858,11 @@ fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> 
   // Ease the lower release once more so the incident field reads as a broad,
   // soft material response instead of a concentrated lower-half glow.
   let softThinness = smoothstep(0.0, 1.0, thinness);
+  // Centre light, from `GlassMaterial::core_light`: a uniform incident field
+  // plus a smaller release toward the thinner lower hemisphere.
   let uniformLight = (
-    TRAFFIC_LIGHT_UNIFORM_LIGHT
-      + TRAFFIC_LIGHT_THIN_LIGHT_GAIN * softThinness
+    u.u_coreLight.x
+      + u.u_coreLight.y * softThinness
   ) * clamp(u.u_tint.a, 0.0, 1.0) * u.u_adaptive.y;
   let highlight = 0.0;
   // Lateral grazing normals receive the stronger side attenuation. There is

@@ -130,6 +130,7 @@ struct GlassUniform {
     // side-angle in degrees].
     traffic_light_edge: [f32; 4],
     interaction_response: [f32; 4],
+    core_light: [f32; 4],
 }
 
 #[repr(C)]
@@ -2674,6 +2675,12 @@ fn uniform_for_node(
             material.interaction.press_lift.clamp(0.0, 1.0),
             0.0,
         ],
+        core_light: [
+            material.core_light.uniform_light.clamp(0.0, 1.0),
+            material.core_light.thin_light_gain.clamp(0.0, 1.0),
+            0.0,
+            0.0,
+        ],
     }
 }
 
@@ -3582,8 +3589,8 @@ mod tests {
         assert!((shape_roundness(&circle) - 2.0).abs() < f32::EPSILON);
         // Keeps the Rust uniform in lockstep with the WGSL `Uniforms` struct:
         // adding a field on one side only would silently shift every following
-        // slot. 27 x 16 bytes, uniform address space.
-        assert_eq!(std::mem::size_of::<GlassUniform>(), 432);
+        // slot. 28 x 16 bytes, uniform address space.
+        assert_eq!(std::mem::size_of::<GlassUniform>(), 448);
     }
 
     #[test]
