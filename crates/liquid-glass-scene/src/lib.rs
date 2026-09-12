@@ -93,6 +93,9 @@ pub enum GlassVariant {
     Clear,
     TrafficLight,
     TrafficLightPhysical,
+    /// Flat, screen-space bead: the reference traffic-light appearance evaluated
+    /// per pixel instead of composed as physical glass.
+    TrafficLightBead,
 }
 
 /// Optical controls specific to the spherical macOS traffic-light material.
@@ -594,6 +597,85 @@ impl Default for CoreLight {
     }
 }
 
+/// The flat, screen-space traffic-light bead.
+///
+/// This is the reference appearance expressed as a per-pixel evaluation of a
+/// disc: a droplet falloff, a vertical axial glow, and a mode-exclusive rim.
+/// It deliberately bypasses the physical glass composition (no backdrop
+/// transmission, refraction, or Fresnel), so it reproduces a pre-rasterised
+/// bead rather than a glass node.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BeadStyle {
+    /// Droplet profile control points. All zero is the reference `(1 - t)^4`.
+    pub b1: f32,
+    pub b2: f32,
+    pub b3: f32,
+    /// Vertical axial glow strength.
+    pub center_glow: f32,
+    /// Core saturation lift.
+    pub saturation_lift: f32,
+    /// Bright-edge strength (dark appearance only).
+    pub highlight_intensity: f32,
+    /// Dark-rim strength (light appearance only).
+    pub dark_rim_intensity: f32,
+    /// Bright-edge span factor.
+    pub core_span_factor: f32,
+    /// Dark-rim span factor.
+    pub rim_span_factor: f32,
+    /// Caustic multiplier of the axial glow, light appearance.
+    pub caustic_light: f32,
+    /// Caustic multiplier of the axial glow, dark appearance.
+    pub caustic_dark: f32,
+    /// Whether the dark appearance is active. `0.0` is light, `1.0` is dark.
+    pub mode_dark: f32,
+}
+
+impl BeadStyle {
+    /// The calibrated reference appearance.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            b1: 0.0,
+            b2: 0.0,
+            b3: 0.0,
+            center_glow: 1.0,
+            saturation_lift: 0.25,
+            highlight_intensity: 0.85,
+            dark_rim_intensity: 2.0,
+            core_span_factor: 1.0,
+            rim_span_factor: 1.0,
+            caustic_light: 1.10,
+            caustic_dark: 0.80,
+            mode_dark: 0.0,
+        }
+    }
+
+    /// Clamps every parameter into range.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            b1: self.b1.clamp(0.0, 2.0),
+            b2: self.b2.clamp(0.0, 2.0),
+            b3: self.b3.clamp(0.0, 1.0),
+            center_glow: self.center_glow.clamp(0.0, 2.0),
+            saturation_lift: self.saturation_lift.clamp(0.0, 0.5),
+            highlight_intensity: self.highlight_intensity.clamp(0.0, 2.0),
+            dark_rim_intensity: self.dark_rim_intensity.clamp(0.0, 3.0),
+            core_span_factor: self.core_span_factor.clamp(0.5, 2.0),
+            rim_span_factor: self.rim_span_factor.clamp(0.5, 2.0),
+            caustic_light: self.caustic_light.clamp(0.0, 2.0),
+            caustic_dark: self.caustic_dark.clamp(0.0, 2.0),
+            mode_dark: self.mode_dark.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Default for BeadStyle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Directional shaping of a spherical control's absorbing rim.
 ///
 /// The reference appearance concentrates the dark rim strictly on the lateral
@@ -726,6 +808,8 @@ pub struct GlassMaterial {
     pub core_light: CoreLight,
     /// Directional shaping of the spherical absorbing rim.
     pub rim_profile: RimProfile,
+    /// Flat bead parameters, used by [`GlassVariant::TrafficLightBead`].
+    pub bead: BeadStyle,
 }
 
 impl GlassMaterial {
@@ -755,6 +839,7 @@ impl GlassMaterial {
             interaction: InteractionResponse::new(),
             core_light: CoreLight::new(),
             rim_profile: RimProfile::new(),
+            bead: BeadStyle::new(),
         }
     }
 

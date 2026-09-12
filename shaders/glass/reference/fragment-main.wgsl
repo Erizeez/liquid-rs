@@ -89,6 +89,12 @@ struct Uniforms {
   // x: lateral power, y: vertical floor, z: grazing power
   // (`GlassMaterial::rim_profile`).
   u_rimProfile: vec4f,
+  // Reference bead: x/y/z droplet control points, w centre glow.
+  u_beadA: vec4f,
+  // x saturation lift, y highlight, z dark rim, w core span factor.
+  u_beadB: vec4f,
+  // x rim span factor, y caustic light, z caustic dark, w mode (1 = dark).
+  u_beadC: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -104,6 +110,7 @@ const FEATURE_CLEAR_VARIANT: i32 = 16;
 const FEATURE_TRAFFIC_LIGHT: i32 = 32;
 const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 64;
 const FEATURE_TRAFFIC_LIGHT_REFERENCE: i32 = 128;
+const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 256;
 // Texture sampling from the renderer's sRGB target returns linear values.
 // These are the linear-light equivalents of the light macOS window substrate
 // used to calibrate the traffic-light material (0.95, 0.95, 0.965 sRGB).
@@ -111,6 +118,10 @@ const TRAFFIC_LIGHT_REFERENCE_BACKDROP: vec3f = vec3f(0.8900, 0.8900, 0.9180);
 
 fn featureEnabled(flag: i32) -> bool {
   return (u.u_featureFlags & flag) != 0;
+}
+
+fn isTrafficLightBead() -> bool {
+  return featureEnabled(FEATURE_TRAFFIC_LIGHT_BEAD);
 }
 
 fn usesTrafficLightReferenceBackdrop() -> bool {
@@ -1130,6 +1141,69 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     isTrafficLight(),
   );
   let shapeAlpha = 1.0 - smoothstep(-antialiasWidth, antialiasWidth, merged);
+
+  // Flat reference bead: the pre-rasterised traffic-light appearance evaluated
+  // per pixel. It deliberately bypasses the physical composition below -- there
+  // is no backdrop transmission, refraction, or Fresnel -- so the control reads
+  // as a baked bead rather than a glass node.
+  if (isTrafficLightBead()) {
+    // `pixel` is y-up while the node centre is packed y-down, matching the
+    // convention the pointer/spring uniforms already use.
+    let beadCentre = vec2f(u.u_mouseSpring.x, u.u_resolution.y - u.u_mouseSpring.y);
+    let beadRadius = max(min(u.u_shapeWidth, u.u_shapeHeight) * 0.5, 1.0);
+    let offset = pixel - beadCentre;
+    let dist = length(offset);
+    let nx = offset.x / beadRadius;
+    let ny = offset.y / beadRadius;
+    let inside = beadRadius - dist;
+
+    var bead = u.u_tint.rgb;
+    if (inside > 0.0) {
+      let tDist = clamp(inside / beadRadius, 0.0, 1.0);
+      let q = 1.0 - tDist;
+      let falloff = q * q * q * q
+        + 4.0 * q * q * q * tDist * u.u_beadA.x
+        + 6.0 * q * q * tDist * tDist * u.u_beadA.y
+        + 4.0 * q * tDist * tDist * tDist * u.u_beadA.z;
+
+      let dark = clamp(u.u_beadC.w, 0.0, 1.0);
+      let glow = clamp(u.u_beadA.w, 0.0, 2.0) * mix(u.u_beadC.y, u.u_beadC.z, dark);
+      // Vertical axial internal glow, not a circular one.
+      let vertical = clamp((ny + 0.15) / 1.15, 0.0, 1.0);
+      let axial = pow(vertical, 1.35)
+        * pow(max(1.0 - nx * nx, 0.0), 0.25) * 0.42 * glow;
+      let coreLift = (1.0 - falloff) * clamp(u.u_beadB.x, 0.0, 0.5) * glow;
+      var colour = u.u_tint.rgb * (0.88 + coreLift + axial);
+
+      // Whole-control pointer response, shared with every other variant.
+      let engaged = clamp(u.u_interaction, 0.0, 1.0);
+      let pressed = clamp(u.u_press, 0.0, 1.0);
+      colour *= 1.0
+        + u.u_interactionResponse.x * engaged
+        + u.u_interactionResponse.y * pressed;
+      colour += u.u_tint.rgb * u.u_interactionResponse.z * pressed;
+
+      // Mode-exclusive rim: a dark wall on the lateral sides for the light
+      // appearance, a bright edge on the vertical arcs for the dark one.
+      let logicalSize = max(beadRadius * 2.0 / max(u.u_dpr, 0.5), 1.0);
+      let span = max(1.8 * u.u_dpr, 2.4 * u.u_dpr * sqrt(logicalSize / 14.0));
+      let rimSpan = max(span * clamp(u.u_beadC.x, 0.5, 2.0), 1.0);
+      let sideWall = pow(clamp(abs(nx), 0.0, 1.0), 2.0);
+      let darkDrop = pow(1.0 - clamp(inside / rimSpan, 0.0, 1.0), 2.0)
+        * (52.0 / 255.0) * sideWall * clamp(u.u_beadB.z, 0.0, 3.0);
+      let edgeSpan = max(span * clamp(u.u_beadB.w, 0.5, 2.0), 1.0);
+      let sharp = pow(1.0 - clamp(inside / edgeSpan, 0.0, 1.0), 3.0) * 0.95;
+      let halo = pow(1.0 - clamp(dist / beadRadius, 0.0, 1.0), 2.0) * 0.06;
+      let bright = (sharp + halo)
+        * pow(clamp(abs(ny), 0.0, 1.0), 1.8)
+        * clamp(u.u_beadB.y, 0.0, 2.0);
+      colour = max(colour - vec3f(darkDrop * (1.0 - dark)), vec3f(0.0));
+      colour = min(colour + vec3f(bright * dark), vec3f(1.0));
+      bead = colour;
+    }
+
+    return vec4f(bead, shapeAlpha * clamp(u.u_opacity, 0.0, 1.0));
+  }
   let stats = backdropStats(v_uv);
   let contentContrast = clamp(max(stats.y, abs(stats.x - u.u_environmentLuminance) * 0.35), 0.0, 1.0);
   let variantTintFactor = select(1.0, 0.78, featureEnabled(FEATURE_CLEAR_VARIANT));

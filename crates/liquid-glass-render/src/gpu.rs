@@ -23,6 +23,7 @@ const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 1 << 6;
 // A traffic-light material uses the calibrated light titlebar as its optical
 // reference, while its final pixels are still composited over the real scene.
 const FEATURE_TRAFFIC_LIGHT_REFERENCE: i32 = 1 << 7;
+const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 1 << 8;
 
 const FULLSCREEN_VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &[wgpu::VertexAttribute {
     format: wgpu::VertexFormat::Float32x2,
@@ -133,6 +134,9 @@ struct GlassUniform {
     core_light: [f32; 4],
     core_light_gradient: [f32; 4],
     rim_profile: [f32; 4],
+    bead_a: [f32; 4],
+    bead_b: [f32; 4],
+    bead_c: [f32; 4],
 }
 
 #[repr(C)]
@@ -2543,6 +2547,11 @@ fn uniform_for_node(
     if material.variant == GlassVariant::TrafficLight {
         feature_flags |= FEATURE_TRAFFIC_LIGHT;
     }
+    if material.variant == GlassVariant::TrafficLightBead {
+        // Shares the traffic-light antialiasing and glyph treatment, then
+        // returns early instead of composing physical glass.
+        feature_flags |= FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_BEAD;
+    }
     if material.variant == GlassVariant::TrafficLightPhysical {
         feature_flags |= FEATURE_TRAFFIC_LIGHT_PHYSICAL;
         feature_flags |= FEATURE_TRAFFIC_LIGHT_REFERENCE;
@@ -2682,6 +2691,21 @@ fn uniform_for_node(
             material.core_light.thin_light_gain.clamp(0.0, 1.0),
             material.core_light.core_power.clamp(1.0, 8.0),
             material.core_light.vertical_power.clamp(0.25, 4.0),
+        ],
+        bead_a: [
+            material.bead.b1, material.bead.b2, material.bead.b3, material.bead.center_glow,
+        ],
+        bead_b: [
+            material.bead.saturation_lift,
+            material.bead.highlight_intensity,
+            material.bead.dark_rim_intensity,
+            material.bead.core_span_factor,
+        ],
+        bead_c: [
+            material.bead.rim_span_factor,
+            material.bead.caustic_light,
+            material.bead.caustic_dark,
+            material.bead.mode_dark,
         ],
         rim_profile: [
             material.rim_profile.lateral_power.clamp(0.25, 16.0),
@@ -3603,8 +3627,8 @@ mod tests {
         assert!((shape_roundness(&circle) - 2.0).abs() < f32::EPSILON);
         // Keeps the Rust uniform in lockstep with the WGSL `Uniforms` struct:
         // adding a field on one side only would silently shift every following
-        // slot. 30 x 16 bytes, uniform address space.
-        assert_eq!(std::mem::size_of::<GlassUniform>(), 480);
+        // slot. 33 x 16 bytes, uniform address space.
+        assert_eq!(std::mem::size_of::<GlassUniform>(), 528);
     }
 
     #[test]
