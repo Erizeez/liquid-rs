@@ -34,14 +34,6 @@ const TRAFFIC_LIGHT_PHYSICAL_TINT_COVERAGE: f32 = 0.95;
 // These deltas are linear-light gains; R reaches the SDR ceiling while G/B
 // rise only enough to reproduce the native pressed-state softness.
 const TRAFFIC_LIGHT_RED_PRESS_LIFT: vec3f = vec3f(0.11, 0.072, 0.052);
-// Whole-control press response. The native control brightens as a whole when
-// held, so these are spatially uniform gains on the composed body rather than
-// a highlight: there is deliberately no pointer falloff, which is what stops a
-// press from reading as a cursor spot. `lift` preserves hue where a channel is
-// already clipped at the SDR ceiling, so red still rises in G/B while yellow
-// and green rise in every channel.
-const TRAFFIC_LIGHT_PRESS_BODY_GAIN: f32 = 0.12;
-const TRAFFIC_LIGHT_PRESS_BODY_LIFT: f32 = 0.06;
 
 struct Uniforms {
   u_resolution: vec2f,
@@ -90,6 +82,9 @@ struct Uniforms {
   u_trafficLight: vec4f,
   u_trafficLightLight: vec4f,
   u_trafficLightEdge: vec4f,
+  // x: whole-control press gain, y: tint-hued press lift
+  // (`GlassMaterial::press`).
+  u_pressResponse: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -1304,7 +1299,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     }
 
     if (isTrafficLight() && !featureEnabled(FEATURE_REDUCED_MOTION)) {
-      // Whole-control press brightening.
+      // Whole-control press brightening, driven by `GlassMaterial::press`.
       //
       // This runs *after* the body response on purpose: the sphere's lower half
       // is transmission-mixed and its rim carries the absorbing curvature
@@ -1316,8 +1311,8 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       let trafficPress = clamp(u.u_press, 0.0, 1.0);
       if (trafficPress > 0.0) {
         outColor = vec4f(
-          outColor.rgb * (1.0 + TRAFFIC_LIGHT_PRESS_BODY_GAIN * trafficPress)
-            + u.u_tint.rgb * (TRAFFIC_LIGHT_PRESS_BODY_LIFT * trafficPress),
+          outColor.rgb * (1.0 + u.u_pressResponse.x * trafficPress)
+            + u.u_tint.rgb * (u.u_pressResponse.y * trafficPress),
           outColor.a,
         );
       }

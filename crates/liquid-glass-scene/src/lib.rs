@@ -532,6 +532,52 @@ impl ShadowStyle {
     }
 }
 
+/// How a glass control's *material* responds while it is held down.
+///
+/// Press is a whole-control brightening, not a highlight: the composed colour
+/// rises uniformly, with no pointer falloff, which is what makes a press read
+/// as "the control lit up" instead of "a highlight moved in".
+///
+/// These are material parameters rather than runtime interaction values, so a
+/// playground can tune the response live through the material.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PressResponse {
+    /// Spatially uniform multiplicative gain on the composed control.
+    pub body_gain: f32,
+    /// Spatially uniform, tint-hued brightness lift added on top. Preserves
+    /// hue where a channel is already clipped at the SDR ceiling.
+    pub body_lift: f32,
+}
+
+impl PressResponse {
+    /// The calibrated default: a modest gain plus a smaller tint-hued lift.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { body_gain: 0.12, body_lift: 0.06 }
+    }
+
+    /// Disables the response.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self { body_gain: 0.0, body_lift: 0.0 }
+    }
+
+    /// Clamps both gains into their valid range.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            body_gain: self.body_gain.clamp(0.0, 1.0),
+            body_lift: self.body_lift.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Default for PressResponse {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A complete, shape-independent glass material.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlassMaterial {
@@ -563,6 +609,8 @@ pub struct GlassMaterial {
     /// response. They are kept on the material so custom controls can tune
     /// the response without replacing the renderer.
     pub adaptive: AdaptiveStyle,
+    /// Whole-control brightening applied while the control is held down.
+    pub press: PressResponse,
 }
 
 impl GlassMaterial {
@@ -589,6 +637,7 @@ impl GlassMaterial {
             show_shape1: false,
             shadow: ShadowStyle::none(),
             adaptive: AdaptiveStyle::system(),
+            press: PressResponse::new(),
         }
     }
 
