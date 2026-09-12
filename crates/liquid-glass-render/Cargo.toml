@@ -15,6 +15,10 @@ squircle-rs = { git = "https://github.com/Erizeez/squircle-rs", tag = "v0.1.2" }
 vibrancy-rs = { git = "https://github.com/Erizeez/vibrancy-rs.git", tag = "v0.1.1", version = "0.1.1" }
 wgpu = { version = "27.0.1", features = ["noop"] }
 
+[dev-dependencies]
+pollster = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"

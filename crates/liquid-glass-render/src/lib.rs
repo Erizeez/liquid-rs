@@ -7,8 +7,13 @@
 
 use liquid_glass_scene::{GlassScene, Rect};
 
+mod content_glass;
 mod gpu;
 
+pub use content_glass::{
+    CONTENT_GLASS_UNIFORM_BYTES, ContentGlassAppearance, ContentGlassMaterial, ContentGlassNode,
+    ContentGlassRenderer, MAX_CONTENT_GLASS_NODES, TrafficLightKind,
+};
 pub use gpu::{GpuError, GpuFrameBatch, GpuRenderer, GpuSize};
 
 /// Passes in the Liquid Glass composition pipeline.

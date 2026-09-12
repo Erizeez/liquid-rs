@@ -16,6 +16,7 @@ Framework-agnostic real-time Liquid Glass rendering engine and GPU shader compos
 - **Dual Kawase Backdrop Blur**: High-performance downsampled dual-pass Kawase blur integration powered by [`vibrancy-rs`](https://github.com/Erizeez/vibrancy-rs).
 - **Scene Graph & Automatic Shape Fusion**: Declarative scene graph supporting nested glass nodes, depth z-ordering, unified backdrop capture bounds, and zero-flicker adjacent shape fusion.
 - **Physics-Based Spring Animations**: Built-in spring dynamics engine for fluid interactive surface reactions.
+- **Fitted macOS 27 Content Glass**: A measured content-glass material (`ContentGlassRenderer`) with a 3x4 body matrix, mip-chain blur, two-sided rim refraction, chromatic aberration and an anisotropic sub-pixel contact contour, fitted against real `NSGlassEffectView` captures (interior MAE 1.5-3.3/255 in both light and dark appearance).
 
 ---
 
@@ -35,6 +36,21 @@ liquid-rs (Facade)
 - **[`liquid-glass-scene`](crates/liquid-glass-scene)**: Renderer-independent scene graph, physical material parameters (`specular`, `translucency`, `refraction`, `dispersion`, `glare`), and layer composition models.
 - **[`liquid-glass-render`](crates/liquid-glass-render)**: `wgpu`-based multi-pass compositor integrating Dual Kawase backdrop blur from `vibrancy-rs` and real-time liquid glass surface WGSL shaders.
 - **[`liquid-glass-animation`](crates/liquid-glass-animation)**: Spring dynamics for fluid transitions and physics.
+- **Content glass**: `liquid-glass-render::ContentGlassRenderer` draws the fitted macOS 27 content material over a captured backdrop. It is independent of the legacy multi-pass reference compositor and is the recommended path for panels, sidebars and other non-interactive surfaces.
+
+```rust
+use liquid_glass_render::{ContentGlassNode, ContentGlassRenderer, GpuSize};
+
+let mut glass = ContentGlassRenderer::from_device(device, queue, GpuSize::new(1280, 800), format);
+glass.set_backdrop_rgba8(width, height, &backdrop_rgba8)?;
+glass.render_to_view(&output_view, &[
+    ContentGlassNode::new(40.0, 40.0, 320.0, 120.0),
+], wgpu::LoadOp::Load);
+```
+
+```sh
+cargo run -p liquid-glass-render --example content_glass -- backdrop.png out.png light
+```
 
 ---
 
