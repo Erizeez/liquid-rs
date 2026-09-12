@@ -267,10 +267,27 @@ fn srgb_channel_to_linear(value: f32) -> f32 {
 }
 
 /// Renderer-wide inputs shared by all nodes in one composition.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GlassRenderOptions {
     pub accessibility: GlassAccessibility,
     pub environment: GlassEnvironment,
+    /// Device pixels per logical point for the surface being composed.
+    ///
+    /// Node geometry reaching the renderer is already in device pixels, so this
+    /// scales no shape. It exists for material responses that are authored in
+    /// logical points and must be converted to physical pixels, such as the
+    /// reference bead's rim spans.
+    pub scale_factor: f32,
+}
+
+impl Default for GlassRenderOptions {
+    fn default() -> Self {
+        Self {
+            accessibility: GlassAccessibility::default(),
+            environment: GlassEnvironment::default(),
+            scale_factor: 1.0,
+        }
+    }
 }
 
 /// Pointer and state information used by a glass node's internal lighting.
@@ -1173,6 +1190,7 @@ mod tests {
                 ..GlassAccessibility::none()
             },
             environment,
+            ..GlassRenderOptions::default()
         };
         let scene = GlassScene::default().with_render_options(options);
 

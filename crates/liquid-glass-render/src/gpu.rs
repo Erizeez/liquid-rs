@@ -97,6 +97,8 @@ impl std::error::Error for GpuError {}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct GlassUniform {
+    // [width, height, uniform dpr (always 1: geometry is already physical),
+    // device pixels per logical point].
     resolution_dpr_pad: [f32; 4],
     mouse_and_spring: [f32; 4],
     shape: [f32; 4],
@@ -2592,7 +2594,12 @@ fn uniform_for_node(
     let shape_roundness = shape_roundness(node);
     let (fused_bounds, fused_geometry) = fused_shape_uniforms(size, node);
     GlassUniform {
-        resolution_dpr_pad: [size.width as f32, size.height as f32, 1.0, 0.0],
+        resolution_dpr_pad: [
+            size.width as f32,
+            size.height as f32,
+            1.0,
+            options.scale_factor.max(1.0),
+        ],
         mouse_and_spring: [pointer_x, pointer_y, center_x, center_y],
         shape: [node.bounds.width, node.bounds.height, shape_radius, shape_roundness],
         capsule_bezier_x: [0.0; 4],
@@ -3632,6 +3639,33 @@ mod tests {
         // adding a field on one side only would silently shift every following
         // slot. 33 x 16 bytes, uniform address space.
         assert_eq!(std::mem::size_of::<GlassUniform>(), 528);
+    }
+
+    #[test]
+    fn the_scale_factor_reaches_the_uniform_without_moving_geometry() {
+        let node = GlassNode::new(GlassId(7), Rect::new(4.0, 6.0, 20.0, 20.0));
+        let uniform = |scale_factor: f32| {
+            uniform_for_node(
+                GpuSize::new(100, 100),
+                &node,
+                0.0,
+                false,
+                1.0,
+                true,
+                false,
+                GlassRenderOptions { scale_factor, ..GlassRenderOptions::default() },
+            )
+        };
+
+        let base = uniform(1.0);
+        let retina = uniform(2.0);
+        assert_eq!(base.resolution_dpr_pad[3], 1.0);
+        assert_eq!(retina.resolution_dpr_pad[3], 2.0);
+        // The scale factor only feeds point-authored material responses. Node
+        // geometry is already physical, so no shape slot may follow it.
+        assert_eq!(base.shape, retina.shape);
+        assert_eq!(base.mouse_and_spring, retina.mouse_and_spring);
+        assert_eq!(base.fused_bounds, retina.fused_bounds);
     }
 
     #[test]

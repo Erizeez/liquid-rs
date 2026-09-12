@@ -34,7 +34,9 @@ const TRAFFIC_LIGHT_RED_PRESS_LIFT: vec3f = vec3f(0.11, 0.072, 0.052);
 struct Uniforms {
   u_resolution: vec2f,
   u_dpr: f32,
-  _pad0: f32,
+  // Device pixels per logical point. Not a shape scale: node geometry is
+  // already physical. Used where a material response is authored in points.
+  u_renderScale: f32,
   u_mouse: vec2f,
   u_mouseSpring: vec2f,
   u_shapeWidth: f32,
@@ -1203,8 +1205,11 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
 
       // Mode-exclusive rim: a dark wall on the lateral sides for the light
       // appearance, a bright edge on the vertical arcs for the dark one.
-      let logicalSize = max(beadRadius * 2.0 / max(u.u_dpr, 0.5), 1.0);
-      let span = max(1.8 * u.u_dpr, 2.4 * u.u_dpr * sqrt(logicalSize / 14.0));
+      // The spans are authored in logical points and grow with the control, so
+      // convert them to physical pixels with the surface's own scale factor.
+      let renderScale = max(u.u_renderScale, 1.0);
+      let logicalSize = max(beadRadius * 2.0 / renderScale, 1.0);
+      let span = max(1.8, 2.4 * sqrt(logicalSize / 14.0)) * renderScale;
       let rimSpan = max(span * clamp(u.u_beadC.x, 0.5, 2.0), 1.0);
       let sideWall = pow(clamp(abs(nx), 0.0, 1.0), 2.0);
       let darkDrop = pow(1.0 - clamp(inside / rimSpan, 0.0, 1.0), 2.0)
