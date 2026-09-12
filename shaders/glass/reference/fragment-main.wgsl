@@ -12,24 +12,14 @@ const SURFACE_MIN_ROUGHNESS: f32 = 0.09;
 const SURFACE_MAX_ROUGHNESS: f32 = 0.20;
 const EXTERNAL_TAIL_STRENGTH: f32 = 0.55;
 const EXTERNAL_TAIL_ONSET: f32 = 3.0;
-const TRAFFIC_LIGHT_CLEAR_COAT_WIDTH: f32 = 1.20;
-// Deliberately wider than the clear coat: this is the dark material body
-// response, not the outer antialiased highlight. It scales with the control
-// diameter through `trafficLightSizeScale()` below.
-const TRAFFIC_LIGHT_COATING_BAND: f32 = 4.80;
-const TRAFFIC_LIGHT_BASE_FRESNEL_RANGE: f32 = 24.0;
-const TRAFFIC_LIGHT_MIN_THICKNESS: f32 = 0.58;
-const TRAFFIC_LIGHT_VERTICAL_LIGHT_FACTOR: f32 = 0.18;
-const TRAFFIC_LIGHT_EDGE_DARKNESS: f32 = 1.08;
-const TRAFFIC_LIGHT_EDGE_SHARPNESS: f32 = 8.00;
-const TRAFFIC_LIGHT_VERTICAL_EDGE_WIDTH: f32 = 0.42;
-const TRAFFIC_LIGHT_VERTICAL_EDGE_SHARPNESS: f32 = 8.00;
-const TRAFFIC_LIGHT_PHYSICAL_TINT_COVERAGE: f32 = 0.95;
-// Press-state lift measured from the native control: normal red is about
-// sRGB (242, 94, 83), while the pressed state is about (255, 119, 104).
-// These deltas are linear-light gains; R reaches the SDR ceiling while G/B
-// rise only enough to reproduce the native pressed-state softness.
-const TRAFFIC_LIGHT_RED_PRESS_LIFT: vec3f = vec3f(0.11, 0.072, 0.052);
+// Flattens the optical body along the view axis. Every variant shares this
+// value; the material no longer carries a per-node copy.
+const SURFACE_BODY_THICKNESS: f32 = 0.79;
+// Press-state lift for a red-tinted control: normal red is about sRGB
+// (242, 94, 83), while the pressed state is about (255, 119, 104). These
+// deltas are linear-light gains; R reaches the SDR ceiling while G/B rise
+// only enough to reproduce the native pressed-state softness.
+const RED_PRESS_LIFT: vec3f = vec3f(0.11, 0.072, 0.052);
 
 struct Uniforms {
   u_resolution: vec2f,
@@ -77,20 +67,14 @@ struct Uniforms {
   u_fusedBounds: array<vec4f, 4>,
   u_fusedGeometry: array<vec4f, 4>,
   u_interactionState: vec4f,
-  u_trafficLight: vec4f,
-  u_trafficLightLight: vec4f,
-  u_trafficLightEdge: vec4f,
   // x: hover gain, y: press gain, z: tint-hued press lift
   // (`GlassMaterial::interaction`).
   u_interactionResponse: vec4f,
   // x: uniform incident field, y: lower-hemisphere thin light gain
   // (`GlassMaterial::core_light`).
-  u_coreLight: vec4f,
   // x: core lift, y: axial glow, z: horizontal roll-off power
-  u_coreLightGradient: vec4f,
   // x: lateral power, y: vertical floor, z: grazing power
   // (`GlassMaterial::rim_profile`).
-  u_rimProfile: vec4f,
   // Reference bead: x/y/z droplet control points, w centre glow.
   u_beadA: vec4f,
   // x saturation lift, y highlight, z dark rim, w core span factor.
@@ -110,7 +94,6 @@ const FEATURE_INCREASED_CONTRAST: i32 = 4;
 const FEATURE_REDUCED_MOTION: i32 = 8;
 const FEATURE_CLEAR_VARIANT: i32 = 16;
 const FEATURE_TRAFFIC_LIGHT: i32 = 32;
-const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 64;
 const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 256;
 // Texture sampling from the renderer's sRGB target returns linear values.
 fn featureEnabled(flag: i32) -> bool {
@@ -370,32 +353,13 @@ struct SurfaceProfile {
   fresnel: f32,
 };
 
-fn trafficLightSizeScale() -> f32 {
-  // The material encodes the logical control-size ratio in the Fresnel
-  // range. Keep every traffic-light edge width on that same ratio so a
-  // 64-point inspection control is not left with a native-size bevel.
-  return clamp(
-    u.u_refFresnelRange / TRAFFIC_LIGHT_BASE_FRESNEL_RANGE,
-    1.0,
-    4.0,
-  );
-}
 
 fn clearCoatWidth() -> f32 {
-  let width = clamp(u.u_refFresnelRange * 0.08, 1.25, 2.0);
-  let trafficLightScale = trafficLightSizeScale();
-  return select(width, TRAFFIC_LIGHT_CLEAR_COAT_WIDTH * trafficLightScale, isTrafficLight());
+  return clamp(u.u_refFresnelRange * 0.08, 1.25, 2.0);
 }
 
 fn surfaceBevelWidth() -> f32 {
-  let width = clamp(u.u_refThickness * 0.42, SURFACE_BEVEL_MIN, SURFACE_BEVEL_MAX);
-  let trafficLightScale = trafficLightSizeScale();
-  let trafficLightWidth = clamp(
-    u.u_refThickness * 0.18 * trafficLightScale,
-    1.8 * trafficLightScale,
-    3.2 * trafficLightScale,
-  );
-  return select(width, trafficLightWidth, isTrafficLight());
+  return clamp(u.u_refThickness * 0.42, SURFACE_BEVEL_MIN, SURFACE_BEVEL_MAX);
 }
 
 fn refractionBodyWidth() -> f32 {
@@ -423,13 +387,6 @@ fn surfaceProfile(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> SurfacePro
     planarNormal * lateralSlope,
     sqrt(max(1.0 - lateralSlope * lateralSlope, 0.001)),
   ));
-  // The physical traffic-light experiment uses the exact circular SDF as a
-  // shallow sphere. It gets no painted edge or directional-light response;
-  // only the interface normal changes from the generic rounded-surface
-  // profile to the spherical one.
-  if (featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL)) {
-    surfaceNormal = refractionBodyNormal(merged, p1, p2, pixel);
-  }
   // The refractive body can remain several pixels thick, but the optically
   // smooth outer coating is much thinner. Using Fresnel range as the coating
   // width keeps this a single physical interface instead of painting a
@@ -441,7 +398,7 @@ fn surfaceProfile(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> SurfacePro
   // The bright strip is convolved over the broader curved bevel. It creates
   // a gradual microfacet shoulder toward the interior without widening the
   // dark lateral clear-coat boundary.
-  let highlightWidth = select(bevelWidth * 1.50, bevelWidth * 1.15, isTrafficLight());
+  let highlightWidth = bevelWidth * 1.50;
   let highlightRim = 1.0 - smootherStep01(insideDistance / highlightWidth);
   let f0 = pow((max(u.u_refFactor, 1.0001) - 1.0) / (max(u.u_refFactor, 1.0001) + 1.0), 2.0);
   let fresnel = f0 + (1.0 - f0) * pow(1.0 - clamp(surfaceNormal.z, 0.0, 1.0), 5.0);
@@ -459,7 +416,7 @@ fn refractionBodyNormal(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> vec3
   // Scale the view-axis radius independently from the visible circular
   // outline. This turns the optical body into an ellipsoid: a value below one
   // flattens it and a value above one gives it more depth.
-  let bodyThickness = clamp(u.u_trafficLightLight.y, 0.25, 3.0);
+  let bodyThickness = SURFACE_BODY_THICKNESS;
   let planarNormal = getNormal(p1, p2, pixel);
   return normalize(vec3f(
     planarNormal * lateralSlope,
@@ -467,96 +424,7 @@ fn refractionBodyNormal(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> vec3
   ));
 }
 
-fn trafficLightPhysicalLowerLight(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> f32 {
-  if (!featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL) || merged >= 0.0) {
-    return 0.0;
-  }
 
-  // The light comes from below and slightly toward the viewer. This is an
-  // object-space incident direction: only the lower-facing part of the sphere
-  // receives it, while the upper hemisphere remains unlit. Keeping the test
-  // in normal space avoids a screen-space ellipse or a moving painted glow.
-  let bodyNormal = refractionBodyNormal(merged, p1, p2, pixel);
-  let lightAngle = clamp(u.u_trafficLightLight.x, 0.0, 1.0) * (PI * 0.5);
-  let incidentDirection = vec3f(0.0, -sin(lightAngle), cos(lightAngle));
-  let incidence = max(dot(bodyNormal, incidentDirection), 0.0);
-  // Model a finite area-light source rather than blurring the finished pixel.
-  // Its angular radius broadens the incident field while preserving the
-  // normal-derived spherical placement of the lower illumination.
-  let softness = clamp(u.u_trafficLightEdge.y, 0.0, 1.0);
-  let lowerThreshold = mix(0.48, 0.20, softness);
-  let upperThreshold = mix(0.86, 1.00, softness);
-  return smoothstep(lowerThreshold, upperThreshold, incidence);
-}
-
-fn trafficLightPhysicalEdgeAbsorption(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> f32 {
-  if (!featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL) || merged >= 0.0) {
-    return 0.0;
-  }
-
-  let bodyNormal = refractionBodyNormal(merged, p1, p2, pixel);
-  // Keep a closed contour, but make the left/right wall materially broader
-  // and darker than the upper/lower arc. The Gaussian is in normal space, so
-  // the anisotropy follows the curved body instead of becoming a pair of
-  // screen-space side bars.
-  // Use two angular Gaussian lobes centred on the left/right horizontal
-  // poles. The side angle is their standard deviation in degrees, so the
-  // thickness falls continuously instead of having a start/end sector.
-  let sideSigma = clamp(u.u_trafficLightEdge.w, 10.0, 80.0) * PI / 180.0;
-  let sideDistance = acos(clamp(abs(bodyNormal.x), 0.0, 1.0));
-  let gaussianCoordinate = sideDistance / sideSigma;
-  let horizontalWeight = exp(-0.5 * gaussianCoordinate * gaussianCoordinate);
-  let sideBias = clamp(u.u_trafficLightEdge.z, 0.0, 1.0);
-  let grazing = pow(clamp(1.0 - bodyNormal.z, 0.0, 1.0), 0.70);
-  let sizeScale = clamp(
-    min(u.u_shapeWidth, u.u_shapeHeight) / 64.0,
-    0.35,
-    1.0,
-  );
-  let edgeWidth = clamp(
-    TRAFFIC_LIGHT_COATING_BAND
-      * sizeScale
-      * clamp(u.u_trafficLightEdge.x, 0.25, 3.0)
-      * mix(
-        1.0,
-        mix(0.58, 1.55, horizontalWeight),
-        sideBias,
-      ),
-    0.75,
-    32.0,
-  );
-  let insideDistance = max(-merged * (u.u_resolution.y / u.u_dpr), 0.0);
-  let edgeSharpness = mix(
-    TRAFFIC_LIGHT_VERTICAL_EDGE_SHARPNESS,
-    TRAFFIC_LIGHT_EDGE_SHARPNESS,
-    mix(0.5, horizontalWeight, sideBias),
-  );
-  // Preserve the configured physical band width, but concentrate most of
-  // the transition toward its inner shoulder. A plain smoothstep spread the
-  // tint across the whole band and made the contour read as fog.
-  let edgeBand = 1.0 - pow(
-    smoothstep(0.0, edgeWidth, insideDistance),
-    edgeSharpness,
-  );
-  let darkness = clamp(u.u_trafficLightLight.w, 0.0, 4.0);
-  let baseDarkness = clamp(darkness / 2.0, 0.0, 1.0);
-  let extendedDarkness = clamp((darkness - 2.0) / 2.0, 0.0, 1.0);
-  let materialDepth =
-    mix(0.42, 1.16, baseDarkness) + 0.50 * extendedDarkness;
-  let directionalDepth = mix(
-    1.0,
-    mix(0.65, 1.0, horizontalWeight),
-    sideBias,
-  );
-  return clamp(
-    edgeBand
-      * grazing
-      * materialDepth
-      * directionalDepth,
-    0.0,
-    0.92,
-  );
-}
 
 const D65_WHITE: vec3f = vec3f(0.95045592705, 1.0, 1.08905775076);
 const RGB_TO_XYZ_M_COL0: vec3f = vec3f(0.4124, 0.3576, 0.1805);
@@ -698,14 +566,6 @@ fn interactionLight(pixel: vec2f) -> f32 {
   if (u.u_interaction <= 0.0001 || featureEnabled(FEATURE_REDUCED_MOTION)) {
     return 0.0;
   }
-  // Traffic-light hover is coordinated at the group level so its glyphs reveal
-  // together; letting that flag drive a per-control optical spot would light up
-  // every sibling button. Their press response is a whole-body brightening (see
-  // the compose stage below), so this pointer-localised excitation does not
-  // apply to them at all.
-  if (isTrafficLight()) {
-    return 0.0;
-  }
   let radius = max(min(u.u_shapeWidth, u.u_shapeHeight) * u.u_dpr * 0.70, 32.0);
   let springPointer = mix(u.u_mouse, u.u_interactionState.xy, 0.65);
   return exp(-length(pixel - springPointer) / radius) * u.u_interaction;
@@ -722,74 +582,6 @@ fn pressLight(pixel: vec2f) -> f32 {
   let springPointer = mix(u.u_mouse, u.u_interactionState.xy, 0.65);
   let localFocus = exp(-length(pixel - springPointer) / radius);
   return u.u_press * (0.62 + 0.38 * localFocus);
-}
-
-struct InterfaceResponse {
-  radiance: vec3f,
-  reflectance: f32,
-};
-
-struct BodyResponse {
-  transmission: f32,
-  uniformLight: f32,
-  highlight: f32,
-  sideShadow: f32,
-  curvatureShadow: f32,
-  upperAbsorption: f32,
-};
-
-fn isTrafficLight() -> bool {
-  return featureEnabled(FEATURE_TRAFFIC_LIGHT)
-    && abs(u.u_shapeWidth - u.u_shapeHeight) < 0.5
-    && u.u_shapeRadius > min(u.u_shapeWidth, u.u_shapeHeight) * 0.45;
-}
-
-fn trafficLightLowerFacing(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> f32 {
-  if (!isTrafficLight()) {
-    return 0.0;
-  }
-  let bodyNormal = refractionBodyNormal(merged, p1, p2, pixel);
-  // The lower-facing part of the curved body is the direction in which the
-  // native control becomes more transmissive. Deriving this from the normal
-  // keeps the response tied to the optical surface instead of painting a
-  // screen-space vertical gradient.
-  return clamp(-bodyNormal.y, 0.0, 1.0);
-}
-
-fn trafficLightThinness(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> f32 {
-  if (!isTrafficLight()) {
-    return 0.0;
-  }
-  // Treat the lower-facing part of the curved body as the thinner side of
-  // the laminated control. The smoothstep is the thickness transition: it
-  // changes the optical depth continuously instead of introducing a painted
-  // lower ellipse or a hard opacity boundary.
-  return smoothstep(0.12, 0.82, trafficLightLowerFacing(merged, p1, p2, pixel));
-}
-
-fn trafficLightThicknessFactor(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> f32 {
-  return mix(
-    1.0,
-    TRAFFIC_LIGHT_MIN_THICKNESS,
-    trafficLightThinness(merged, p1, p2, pixel),
-  );
-}
-
-fn trafficLightTransmissionBackdrop(bodyColor: vec3f, backdrop: vec3f) -> vec3f {
-  // Lower thickness is allowed to reveal the backdrop's colour and texture,
-  // but a dark backdrop must not turn the thinner hemisphere into a dark
-  // stripe. Preserve the pre-transmission luminance and only compensate the
-  // transmitted source when it is darker; this is a luminance guard, not a
-  // painted white highlight or an emissive ellipse.
-  let body = max(bodyColor, vec3f(0.0));
-  let source = max(backdrop, vec3f(0.0));
-  let bodyLuminance = luminance(body);
-  let sourceLuminance = luminance(source);
-  if (sourceLuminance <= 0.0001) {
-    return body;
-  }
-  let gain = clamp(bodyLuminance / sourceLuminance, 1.0, 3.0);
-  return source * gain;
 }
 
 fn trafficLightPigment() -> vec3f {
@@ -825,143 +617,36 @@ fn calibrateTrafficLightColor(color: vec3f) -> vec3f {
   let redSignal = smoothstep(0.65, 0.90, tint.r - secondary);
   let calibrated = color * vec3f(0.89, 0.59, 0.62);
   let pressed = calibrated
-    + TRAFFIC_LIGHT_RED_PRESS_LIFT * clamp(u.u_press, 0.0, 1.0);
+    + RED_PRESS_LIFT * clamp(u.u_press, 0.0, 1.0);
   return mix(color, pressed, redSignal);
 }
 
-fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> BodyResponse {
-  // Traffic lights use a spherical body. Keep this response
-  // disabled for capsules and panels so their existing material profiles are
-  // unchanged.
-  if (!isTrafficLight() || merged >= 0.0 || featureEnabled(FEATURE_REDUCED_TRANSPARENCY)) {
-    return BodyResponse(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-  }
+struct InterfaceResponse {
+  radiance: vec3f,
+  reflectance: f32,
+};
 
-  let bodyNormal = refractionBodyNormal(merged, p1, p2, pixel);
-  let lowerFacing = clamp(-bodyNormal.y, 0.0, 1.0);
+struct BodyResponse {
+  transmission: f32,
+  uniformLight: f32,
+  highlight: f32,
+  sideShadow: f32,
+  curvatureShadow: f32,
+  upperAbsorption: f32,
+};
 
-  // Keep the source light uniform. The lower half becomes brighter because
-  // its continuous thickness field transmits more of the already-lit
-  // backdrop; adding a separate lower area light would create a painted
-  // ellipse and confuse transmission with emission.
-  let thinness = trafficLightThinness(merged, p1, p2, pixel);
-  let transmission = lowerFacing * mix(0.05, 0.22, thinness);
-  // The incident field is uniform across the material. The lower hemisphere
-  // releases slightly more of that same energy because its optical thickness
-  // is lower; there is no screen-space position or hand-painted highlight.
-  // Ease the lower release once more so the incident field reads as a broad,
-  // soft material response instead of a concentrated lower-half glow.
-  let softThinness = smoothstep(0.0, 1.0, thinness);
-  // Centre light, from `GlassMaterial::core_light`: a flat incident field, a
-  // smaller release toward the thinner lower hemisphere, and the droplet core.
-  //
-  // The reference appearance describes the core in screen-plane terms
-  // (`dy/r`, `dx/r`, `d/r`); on the sphere those are exactly the body normal's
-  // components, so the graded terms are derived from `bodyNormal` instead:
-  // `-z` is the radial falloff from the optical centre outward, `y` the
-  // vertical axis and `x` the horizontal roll-off.
-  let coreRadial = 1.0 - clamp(bodyNormal.z, 0.0, 1.0);
-  let coreFalloff = pow(coreRadial, clamp(u.u_coreLight.z, 1.0, 8.0));
-  let coreLift = (1.0 - coreFalloff) * u.u_coreLightGradient.x;
-  let vertical = clamp((bodyNormal.y + 0.15) / 1.15, 0.0, 1.0);
-  let verticalGlow = pow(vertical, clamp(u.u_coreLight.w, 0.25, 4.0));
-  let horizontalRolloff = pow(
-    max(1.0 - bodyNormal.x * bodyNormal.x, 0.0),
-    clamp(u.u_coreLightGradient.z, 0.05, 2.0),
-  );
-  let axialGlow = verticalGlow * horizontalRolloff * u.u_coreLightGradient.y;
-  let uniformLight = (
-    u.u_coreLight.x
-      + u.u_coreLight.y * softThinness
-      + coreLift
-      + axialGlow
-  ) * clamp(u.u_tint.a, 0.0, 1.0) * u.u_adaptive.y;
-  let highlight = 0.0;
-  // Lateral grazing normals receive the stronger side attenuation. There is
-  // no separately painted white outline on the upper/lower contour: the
-  // surrounding dark response stays inside the curved material body.
-  let sideShadow = 0.0;
-  // At the curved perimeter the surface normal turns away from the viewer,
-  // so less of the coloured substrate is visible. Express the dark contour
-  // through that grazing-angle response and the SDF distance; this is not an
-  // additional geometric stroke and it does not create a white rim.
-  // The dark perimeter is the absorbing side of the curved coating. Its
-  // width is expressed in physical pixels and its strength comes from the
-  // grazing normal, so this is a material response rather than a black
-  // stroke drawn on top of the circle.
-  // Keep the absorbing coat compact, but wide enough to survive the traffic
-  // antialiasing and read as a continuous material edge at 1x and 2x DPR.
-  let insideDistance = max(-merged * (u.u_resolution.y / u.u_dpr), 0.0);
-  let trafficLightScale = trafficLightSizeScale();
-  // The upper/lower arcs turn toward the viewer more quickly than the
-  // lateral sides. Give those arcs a shorter optical falloff so the top does
-  // not become a broad grey strip while the side wall keeps its thickness.
-  // Keep the dark side wall out of most of the upper/lower arcs. The
-  // transition is centred around a 45-degree surface angle instead of
-  // gradually spreading over the entire quadrant.
-  let lateralAngle = clamp(abs(bodyNormal.x), 0.0, 1.0);
-  // The reference weights the lateral wall by a power of the body normal
-  // (`|nx|^2`) rather than a fixed transition, which concentrates the absorbing
-  // rim on the left and right while leaving a residual on the vertical arcs.
-  let lateralEdge = pow(lateralAngle, clamp(u.u_rimProfile.x, 0.25, 16.0));
-  let edgeWidthScale = mix(
-    TRAFFIC_LIGHT_VERTICAL_EDGE_WIDTH,
-    1.0,
-    lateralEdge,
-  );
-  let edgeSharpness = mix(
-    TRAFFIC_LIGHT_VERTICAL_EDGE_SHARPNESS,
-    TRAFFIC_LIGHT_EDGE_SHARPNESS,
-    lateralEdge,
-  );
-  // Use the same focused SDF transition as the search field. The previous
-  // smoother-step made this inner absorption feather across too many pixels
-  // and read as a soft duplicate contour at the top and bottom.
-  let coatingPosition = clamp(
-    insideDistance
-      / (TRAFFIC_LIGHT_COATING_BAND * trafficLightScale * edgeWidthScale),
-    0.0,
-    1.0,
-  );
-  // Hold the dark material response across most of the widened band, then
-  // return to the chromatic body decisively near its inner edge. This keeps
-  // the border broad without turning it into a low-contrast soft shadow.
-  let coatingBand = 1.0 - pow(
-    smoothstep(0.0, 1.0, coatingPosition),
-    edgeSharpness,
-  );
-  let grazingCurvature = pow(
-    clamp(1.0 - bodyNormal.z, 0.0, 1.0),
-    clamp(u.u_rimProfile.z, 0.1, 4.0),
-  );
-  // Match the search field's directional edge response: the lateral sides
-  // turn away from the incident field and absorb more, while the upper and
-  // lower contour keeps a softer residual edge. This is derived from the
-  // curved body normal, not a screen-space black stroke.
-  // At the upper/lower contour the search-field environment response already
-  // supplies the pale rim. Leave only a small residual absorption there so it
-  // does not sit underneath that rim as a second dark line.
-  // Keep a visible absorption floor on the upper/lower arc as well. A zero
-  // floor makes the dark material response collapse into two lateral bars;
-  // the native control reads as one continuous rounded perimeter, with the
-  // sides still substantially darker than the top and bottom.
-  let directionalAbsorption = mix(
-    clamp(u.u_rimProfile.y, 0.0, 1.0),
-    1.0,
-    lateralEdge,
-  );
-  let coatingAbsorption = coatingBand
-    * mix(0.24, 0.82, grazingCurvature)
-    * directionalAbsorption
-    * TRAFFIC_LIGHT_EDGE_DARKNESS;
-  let curvatureShadow = clamp(coatingAbsorption, 0.0, 0.92);
-  // The upper-facing hemisphere has no light source in this material model.
-  // Apply only a small normal-derived absorption there so the saturated base
-  // colour does not read as an unintended upper highlight.
-  let upperFacing = clamp(bodyNormal.y, 0.0, 1.0);
-  let upperAbsorption = smoothstep(0.08, 0.78, upperFacing) * 0.06;
-  return BodyResponse(transmission, uniformLight, highlight, sideShadow, curvatureShadow, upperAbsorption);
+fn isTrafficLight() -> bool {
+  return featureEnabled(FEATURE_TRAFFIC_LIGHT)
+    && abs(u.u_shapeWidth - u.u_shapeHeight) < 0.5
+    && u.u_shapeRadius > min(u.u_shapeWidth, u.u_shapeHeight) * 0.45;
 }
+
+
+
+
+
+
+
 
 fn interfaceResponseForProfile(
   profile: SurfaceProfile,
@@ -1001,14 +686,8 @@ fn interfaceResponseForProfile(
   // while the coat remains a dark grazing interface at the lateral sides.
   let broadVerticalIntensity = select(2.10, 2.55, reflectedDirection.y >= 0.0);
   // The search field uses this strip-light environment to keep its top and
-  // bottom rims pale while the lateral environment remains dim. Traffic
-  // lights use the same physical profile at reduced energy so their compact
-  // contour does not become a bright painted band.
-  let verticalIntensity = broadVerticalIntensity * select(
-    1.0,
-    TRAFFIC_LIGHT_VERTICAL_LIGHT_FACTOR,
-    isTrafficLight(),
-  );
+  // bottom rims pale while the lateral environment remains dim.
+  let verticalIntensity = broadVerticalIntensity;
   let localContrast = clamp(
     max(stats.y, abs(stats.x - u.u_environmentLuminance) * 0.5),
     0.0,
@@ -1037,7 +716,7 @@ fn interfaceResponseForProfile(
   let highlightTail = verticalRadiance
     * verticalEnvironment
     * profile.highlightRim
-    * select(0.030, 0.0, isTrafficLight());
+    * 0.030;
   let reflectedRadiance = environmentRadiance * reflectance + highlightTail;
   return InterfaceResponse(reflectedRadiance, reflectance);
 }
@@ -1249,22 +928,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
   let stats = backdropStats(v_uv);
   let contentContrast = clamp(max(stats.y, abs(stats.x - u.u_environmentLuminance) * 0.35), 0.0, 1.0);
   let variantTintFactor = select(1.0, 0.78, featureEnabled(FEATURE_CLEAR_VARIANT));
-  let physicalLowerLight = trafficLightPhysicalLowerLight(merged, p1, p2, pixel);
-  // Native traffic lights keep a dense chromatic upper body, while the lower
-  // curved hemisphere transmits more of the underlying layer. The gradient is
-  // derived from the surface normal, not painted in screen space.
-  let trafficLightTintCoverage = 0.995 - trafficLightThinness(merged, p1, p2, pixel) * 0.24;
-  let physicalTintCoverage = mix(
-    TRAFFIC_LIGHT_PHYSICAL_TINT_COVERAGE,
-    clamp(u.u_trafficLight.z, 0.0, 1.0),
-    physicalLowerLight,
-  );
-  let physicalOrDefaultTintCoverage = select(
-    0.8,
-    physicalTintCoverage,
-    featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL),
-  );
-  let tintCoverage = select(physicalOrDefaultTintCoverage, trafficLightTintCoverage, isTrafficLight());
+  let tintCoverage = 0.8;
   let adaptiveTintAlpha = clamp(
     u.u_tint.a * mix(0.86, 1.14, contentContrast) * u.u_adaptive.x * variantTintFactor,
     0.0,
@@ -1283,7 +947,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       // Snell profile creates the strong magnifying fold at the contour; the
       // enhanced environment interface is layered on only after transmission.
       let insideDistance = -merged * u_resolution1x.y;
-      let refractionThickness = u.u_refThickness * trafficLightThicknessFactor(merged, p1, p2, pixel);
+      let refractionThickness = u.u_refThickness;
       let incidenceRatio = 1.0 - insideDistance / refractionThickness;
       let thetaI = safeAsin(pow(incidenceRatio, 2.0));
       let thetaT = safeAsin(1.0 / max(u.u_refFactor, 1.0001) * sin(thetaI));
@@ -1303,21 +967,8 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
           -1.0,
       );
       var blurMixRate = clamp(insideDistance / u.u_refThickness, 0.0, 1.0);
-      if (featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL)) {
-        // Physical traffic lights expose the clear/scattered blend directly.
-        // This remains independent from the radius of the blurred backdrop:
-        // zero is a clear refracted sample and one is the current fully
-        // scattered material response.
-        blurMixRate = clamp(u.u_trafficLightLight.z, 0.0, 1.0);
-      } else if (featureEnabled(FEATURE_EDGE_BLUR)) {
+      if (featureEnabled(FEATURE_EDGE_BLUR)) {
         blurMixRate = 1.0;
-      }
-      if (isTrafficLight()) {
-        // A thinner lower hemisphere should reveal more of the unblurred
-        // source. Keep the control opaque, but reduce the scattering mix
-        // continuously instead of making the lower half a transparent cutout.
-        let thinness = trafficLightThinness(merged, p1, p2, pixel);
-        blurMixRate = mix(blurMixRate, blurMixRate * 0.45, thinness);
       }
       let refracted = getTextureDispersion(
         v_uv,
@@ -1328,11 +979,8 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       outColor = mix(refracted, vec4f(u.u_tint.rgb, 1.0), adaptiveTintAlpha * tintCoverage);
 
       // The source renderer's white Fresnel shoulder is useful for broad
-      // capsules, but it creates a white halo before the dark perimeter on
-      // traffic lights. Their edge is already supplied by the
-      // material clear-coat below, so keep the source shoulder for capsules
-      // and omit it for traffic lights.
-      if (!isTrafficLight()) {
+      // capsules, so keep it for every remaining variant.
+      {
         let fresnelFactor = clamp(
           pow(
             1.0
@@ -1366,34 +1014,6 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     outColor = textureSampleLevel(u_bg, u_sampler, v_uv, 0.0);
   }
 
-  // The physical traffic-light path still needs an absorptive coloured body;
-  // tint coverage alone only attenuates the refracted backdrop. Stacking this
-  // substrate over the existing 0.95 tint coverage leaves about 0.6% of the
-  // original transmission in the active centre while keeping the spherical
-  // interface response below intact.
-  if (featureEnabled(FEATURE_TRAFFIC_LIGHT_PHYSICAL) && merged < 0.0) {
-    let pigment = trafficLightPigment();
-    let substrateCoverage = mix(
-      clamp(u.u_trafficLight.x, 0.0, 1.0),
-      clamp(u.u_trafficLight.y, 0.0, 1.0),
-      physicalLowerLight,
-    );
-    let effectiveSubstrateCoverage = clamp(
-      adaptiveTintAlpha * substrateCoverage,
-      0.0,
-      1.0,
-    );
-    outColor = vec4f(
-      mix(outColor.rgb, pigment, effectiveSubstrateCoverage),
-      outColor.a,
-    );
-    let angularLight =
-      clamp(u.u_trafficLight.w, 0.0, 2.0)
-      * pow(physicalLowerLight, 0.85)
-      * u.u_adaptive.y;
-    outColor = vec4f(outColor.rgb + pigment * angularLight, outColor.a);
-  }
-
   if (merged < 0.0) {
     let edgeProximity = exp(-abs(merged) * u_resolution1x.y / 10.0);
     let ambientStrength = clamp(
@@ -1403,69 +1023,14 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     );
     outColor = vec4f(mix(outColor.rgb, ambientBackdrop(v_uv), ambientStrength), outColor.a);
     let interaction = interactionLight(pixel);
-    if (!isTrafficLight()) {
-      outColor = vec4f(mix(outColor.rgb, vec3f(1.0), clamp(interaction * 0.12, 0.0, 0.12)), outColor.a);
-    }
+    outColor = vec4f(mix(outColor.rgb, vec3f(1.0), clamp(interaction * 0.12, 0.0, 0.12)), outColor.a);
     let press = pressLight(pixel);
-    // Traffic lights use the calibrated press-state lift below. Keep the
-    // legacy pigment excitation for other glass variants only; applying it
-    // here as well would double-count the red press gain and over-raise G/B.
-    if (!isTrafficLight()) {
-      outColor = vec4f(
-        min(outColor.rgb + trafficLightPigment() * press * 0.60, vec3f(1.0)),
-        outColor.a,
-      );
-    }
+    outColor = vec4f(
+      min(outColor.rgb + trafficLightPigment() * press * 0.60, vec3f(1.0)),
+      outColor.a,
+    );
 
-    let body = trafficLightBodyResponse(merged, p1, p2, pixel);
-    if (body.transmission > 0.0 || body.uniformLight > 0.0 || body.highlight > 0.0 || body.sideShadow > 0.0 || body.curvatureShadow > 0.0 || body.upperAbsorption > 0.0) {
-      // Add the uniform incident field in linear light before transmission
-      // and edge absorption. The tint supplies the wavelength, while the
-      // scalar body response supplies only the material energy.
-      outColor = vec4f(outColor.rgb + u.u_tint.rgb * body.uniformLight, outColor.a);
-      if (u.u_bgTextureReady == 1) {
-        let clearBackdrop = sampleActualBackdrop(v_uv).rgb;
-        let compensatedBackdrop = trafficLightTransmissionBackdrop(outColor.rgb, clearBackdrop);
-        outColor = vec4f(mix(outColor.rgb, compensatedBackdrop, body.transmission), outColor.a);
-      }
-      // Keep the lower-middle optical highlight visible without laying a
-      // broad white veil over the calibrated traffic-light colour.
-      let bodyHighlight = clamp(body.highlight * 0.11, 0.0, 0.15);
-      outColor = vec4f(
-        mix(outColor.rgb, vec3f(1.0), bodyHighlight)
-          * (1.0 - body.sideShadow)
-          * (1.0 - body.curvatureShadow)
-          * (1.0 - body.upperAbsorption),
-        outColor.a,
-      );
-    }
 
-    if (isTrafficLight() && !featureEnabled(FEATURE_REDUCED_MOTION)) {
-      // Whole-control interaction brightening, driven by
-      // `GlassMaterial::interaction`.
-      //
-      // This runs *after* the body response on purpose: the sphere's lower half
-      // is transmission-mixed and its rim carries the absorbing curvature
-      // shadow, so an earlier gain would brighten only part of the control. A
-      // single uniform gain on the composed body is what makes hover and press
-      // read as "the control lit up" instead of "a highlight moved in". It is
-      // applied after the shadow terms too, so the dark perimeter keeps its
-      // relative depth while the whole control rises together.
-      //
-      // `u_interaction` is `max(hover, press, focus)`, so the hover term is
-      // already engaged while the control is held; the press terms add to it.
-      let engaged = clamp(u.u_interaction, 0.0, 1.0);
-      let trafficPress = clamp(u.u_press, 0.0, 1.0);
-      let gain = u.u_interactionResponse.x * engaged
-        + u.u_interactionResponse.y * trafficPress;
-      let lift = u.u_interactionResponse.z * trafficPress;
-      if (gain > 0.0 || lift > 0.0) {
-        outColor = vec4f(
-          outColor.rgb * (1.0 + gain) + u.u_tint.rgb * lift,
-          outColor.a,
-        );
-      }
-    }
   }
 
   if (shapeAlpha > 0.0) {
@@ -1498,28 +1063,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     transmitted * (1.0 - interfaceReflectance) + surfaceReflection,
     vec3f(0.0),
   );
-  // Apply the closed contour after the interface response. This keeps the
-  // edge chromatic: it is the button tint at a darker value, rather than the
-  // backdrop/reflection being multiplied into an achromatic gray. The amount
-  // still follows the physical absorption field and the control opacity.
-  let edgeAbsorption = trafficLightPhysicalEdgeAbsorption(merged, p1, p2, pixel);
-  let darkness = clamp(u.u_trafficLightLight.w, 0.0, 4.0);
-  let baseDarkness = clamp(darkness / 2.0, 0.0, 1.0);
-  let extendedDarkness = clamp((darkness - 2.0) / 2.0, 0.0, 1.0);
-  let edgeTintValue = clamp(
-    mix(0.70, 0.36, baseDarkness) - 0.24 * extendedDarkness,
-    0.12,
-    0.70,
-  );
-  let edgeTint = u.u_tint.rgb * edgeTintValue;
-  let edgeBlend = clamp(edgeAbsorption * opacity, 0.0, 0.92);
-  let finished = mix(reflected, edgeTint, edgeBlend);
-  // The draw call is intentionally larger than the circle so blur and
-  // shadows have room to render. Keep the chromatic calibration inside the
-  // SDF coverage; otherwise the red correction tints that rectangular effect
-  // region and leaves a visible red box behind the control.
-  let calibrated = calibrateTrafficLightColor(finished);
-  let finalColor = mix(finished, calibrated, shapeAlpha);
+  let finalColor = reflected;
   return vec4f(finalColor, mix(backdrop.a, 1.0, opacity));
 }
 

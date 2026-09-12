@@ -95,74 +95,6 @@ pub enum GlassVariant {
     TrafficLightBead,
 }
 
-/// Optical controls specific to the spherical macOS traffic-light material.
-///
-/// These values are carried through the regular glass material so a demo or a
-/// platform adapter can tune the control without changing the shader's global
-/// defaults or affecting ordinary glass surfaces.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TrafficLightStyle {
-    /// Coverage of the coloured substrate away from the lower light.
-    pub substrate_coverage: f32,
-    /// Coverage of the coloured substrate where the lower light is strongest.
-    pub lower_substrate_coverage: f32,
-    /// Base tint coverage at the lower-facing part of the sphere.
-    pub lower_tint_coverage: f32,
-    /// Strength of the normal-derived lower incident light.
-    pub angular_light: f32,
-    /// Normalized angle from the view axis toward the lower hemisphere.
-    /// `0.0` is frontal light and `1.0` is light coming directly from below.
-    pub light_angle: f32,
-    /// Angular radius of the lower light source. Larger values spread the
-    /// incident field over a wider part of the curved body.
-    pub light_softness: f32,
-    /// Depth-axis radius relative to the visible short axis. `1.0` is a
-    /// sphere, values below it flatten the body, and values above it thicken
-    /// the ellipsoid.
-    pub body_thickness: f32,
-    /// Blend from a clear refracted sample to the blurred backdrop sample.
-    /// `1.0` preserves the fully scattered default.
-    pub internal_scattering: f32,
-    /// Absorption strength of the closed spherical edge; the lateral wall
-    /// receives the stronger anisotropic response.
-    pub side_edge_darkness: f32,
-    /// Relative width of the closed absorbing band.
-    pub side_edge_width: f32,
-    /// Bias from a uniform contour toward a thicker/deeper lateral wall.
-    /// Zero is uniform around the circle; one concentrates the response
-    /// toward the left and right sides.
-    pub edge_side_bias: f32,
-    /// Standard deviation in degrees of the Gaussian thickness distribution
-    /// around each horizontal pole.
-    pub edge_side_angle: f32,
-}
-
-impl TrafficLightStyle {
-    #[must_use]
-    pub const fn physical() -> Self {
-        Self {
-            substrate_coverage: 0.88,
-            lower_substrate_coverage: 0.54,
-            lower_tint_coverage: 0.66,
-            angular_light: 0.055,
-            light_angle: 0.52,
-            light_softness: 1.0,
-            body_thickness: 0.79,
-            internal_scattering: 1.0,
-            side_edge_darkness: 4.0,
-            side_edge_width: 1.26,
-            edge_side_bias: 1.0,
-            edge_side_angle: 23.0,
-        }
-    }
-}
-
-impl Default for TrafficLightStyle {
-    fn default() -> Self {
-        Self::physical()
-    }
-}
-
 /// Accessibility preferences that affect the optical treatment of glass.
 ///
 /// These are renderer inputs rather than UI-only flags, so every backend can
@@ -549,68 +481,6 @@ impl ShadowStyle {
     }
 }
 
-/// The centre light of a spherical glass body.
-///
-/// The sphere is lit from inside: a uniform incident field across the body,
-/// plus a smaller release toward the optically thinner lower hemisphere. These
-/// are the strengths a host tunes to judge how lit the centre of a control
-/// reads against its rim.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CoreLight {
-    /// Strength of the flat incident field across the body.
-    pub uniform_light: f32,
-    /// Additional release of the same field toward the thinner lower
-    /// hemisphere.
-    pub thin_light_gain: f32,
-    /// Peak saturation lift at the optical centre of the droplet profile.
-    pub core_lift: f32,
-    /// Peak strength of the vertical axial glow.
-    pub axial_glow: f32,
-    /// Radial exponent of the core profile. `4.0` reproduces the reference
-    /// `(1 - t)^4` droplet falloff.
-    pub core_power: f32,
-    /// Exponent of the vertical gradient. Larger values pool the light lower.
-    pub vertical_power: f32,
-    /// Exponent of the horizontal roll-off. Smaller values widen the lit centre.
-    pub horizontal_power: f32,
-}
-
-impl CoreLight {
-    /// The calibrated default.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            uniform_light: 0.045,
-            thin_light_gain: 0.055,
-            core_lift: 0.25,
-            axial_glow: 0.46,
-            core_power: 4.0,
-            vertical_power: 1.35,
-            horizontal_power: 0.25,
-        }
-    }
-
-    /// Clamps both strengths into range.
-    #[must_use]
-    pub fn clamped(self) -> Self {
-        Self {
-            uniform_light: self.uniform_light.clamp(0.0, 1.0),
-            thin_light_gain: self.thin_light_gain.clamp(0.0, 1.0),
-            core_lift: self.core_lift.clamp(0.0, 1.0),
-            axial_glow: self.axial_glow.clamp(0.0, 1.0),
-            core_power: self.core_power.clamp(1.0, 8.0),
-            vertical_power: self.vertical_power.clamp(0.25, 4.0),
-            horizontal_power: self.horizontal_power.clamp(0.05, 2.0),
-        }
-    }
-}
-
-impl Default for CoreLight {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// The flat, screen-space traffic-light bead.
 ///
 /// This is the reference appearance expressed as a per-pixel evaluation of a
@@ -690,49 +560,6 @@ impl Default for BeadStyle {
     }
 }
 
-/// Directional shaping of a spherical control's absorbing rim.
-///
-/// The reference appearance concentrates the dark rim strictly on the lateral
-/// (left/right) sides and keeps a residual floor on the upper and lower arcs,
-/// expressed as a power of the body normal rather than a fixed transition.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RimProfile {
-    /// Exponent applied to `|normal.x|` for the lateral weight. `2.0`
-    /// reproduces the reference `|nx|^2` concentration.
-    pub lateral_power: f32,
-    /// Residual absorption kept on the upper and lower arcs, where the lateral
-    /// weight is zero.
-    pub vertical_floor: f32,
-    /// Exponent applied to the grazing term (`1 - normal.z`). Larger values
-    /// keep the absorption closer to the silhouette.
-    pub grazing_power: f32,
-}
-
-impl RimProfile {
-    /// The calibrated default: the reference `|nx|^2` lateral concentration, a
-    /// 0.28 residual on the vertical arcs, and the existing grazing falloff.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { lateral_power: 2.0, vertical_floor: 0.28, grazing_power: 0.85 }
-    }
-
-    /// Clamps every exponent and weight into range.
-    #[must_use]
-    pub fn clamped(self) -> Self {
-        Self {
-            lateral_power: self.lateral_power.clamp(0.25, 16.0),
-            vertical_floor: self.vertical_floor.clamp(0.0, 1.0),
-            grazing_power: self.grazing_power.clamp(0.1, 4.0),
-        }
-    }
-}
-
-impl Default for RimProfile {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// How a glass control's *material* responds to pointer engagement.
 ///
 /// Engagement is a whole-control brightening, not a highlight: the composed
@@ -791,7 +618,6 @@ pub struct GlassMaterial {
     /// Public system variant used by the shader's adaptive branch.
     pub variant: GlassVariant,
     /// Optional semantic controls for the spherical traffic-light variant.
-    pub traffic_light: TrafficLightStyle,
     pub blur: BlurStyle,
     pub tint: Color,
     /// Neutral white mixed into the tint independently of its hue.
@@ -819,9 +645,7 @@ pub struct GlassMaterial {
     /// Whole-control brightening applied while the pointer engages the control.
     pub interaction: InteractionResponse,
     /// Centre light of a spherical body (traffic-light variants).
-    pub core_light: CoreLight,
     /// Directional shaping of the spherical absorbing rim.
-    pub rim_profile: RimProfile,
     /// Flat bead parameters, used by [`GlassVariant::TrafficLightBead`].
     pub bead: BeadStyle,
 }
@@ -837,7 +661,6 @@ impl GlassMaterial {
     pub const fn clear() -> Self {
         Self {
             variant: GlassVariant::Clear,
-            traffic_light: TrafficLightStyle::physical(),
             blur: BlurStyle { radius: 10.0, edge_blur: true },
             tint: Color::rgba(1.0, 1.0, 1.0, 0.12),
             whiteness: 0.0,
@@ -851,8 +674,6 @@ impl GlassMaterial {
             shadow: ShadowStyle::none(),
             adaptive: AdaptiveStyle::system(),
             interaction: InteractionResponse::new(),
-            core_light: CoreLight::new(),
-            rim_profile: RimProfile::new(),
             bead: BeadStyle::new(),
         }
     }

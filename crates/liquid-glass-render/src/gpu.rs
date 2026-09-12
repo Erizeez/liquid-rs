@@ -19,7 +19,6 @@ const FEATURE_INCREASED_CONTRAST: i32 = 1 << 2;
 const FEATURE_REDUCED_MOTION: i32 = 1 << 3;
 const FEATURE_CLEAR_VARIANT: i32 = 1 << 4;
 const FEATURE_TRAFFIC_LIGHT: i32 = 1 << 5;
-const FEATURE_TRAFFIC_LIGHT_PHYSICAL: i32 = 1 << 6;
 const FEATURE_TRAFFIC_LIGHT_BEAD: i32 = 1 << 8;
 
 const FULLSCREEN_VERTEX_ATTRIBUTES: &[wgpu::VertexAttribute] = &[wgpu::VertexAttribute {
@@ -120,19 +119,7 @@ struct GlassUniform {
     fused_geometry: [[f32; 4]; 4],
     // [spring pointer x, spring pointer y, parallax, focus].
     interaction_state: [f32; 4],
-    // [substrate coverage, lower substrate coverage, lower tint coverage,
-    // angular lower light] for TrafficLightPhysical.
-    traffic_light: [f32; 4],
-    // [normalized lower-light angle, body thickness, internal scattering,
-    // side-edge darkness].
-    traffic_light_light: [f32; 4],
-    // [side-edge width multiplier, lower-light softness, side bias,
-    // side-angle in degrees].
-    traffic_light_edge: [f32; 4],
     interaction_response: [f32; 4],
-    core_light: [f32; 4],
-    core_light_gradient: [f32; 4],
-    rim_profile: [f32; 4],
     bead_a: [f32; 4],
     bead_b: [f32; 4],
     bead_c: [f32; 4],
@@ -2548,8 +2535,7 @@ fn uniform_for_node(
         // circular SDF path the physical variant used -- that path is what makes
         // the silhouette a whole circle rather than a slice of the generic
         // capsule. The shader still returns early instead of composing glass.
-        feature_flags |=
-            FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_PHYSICAL | FEATURE_TRAFFIC_LIGHT_BEAD;
+        feature_flags |= FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_BEAD;
     }
     let interaction = if accessibility.reduced_motion { 0.0 } else { node.interaction.strength() };
     let pointer_x = node.bounds.x + node.bounds.width * node.interaction.pointer[0];
@@ -2662,35 +2648,11 @@ fn uniform_for_node(
         fused_bounds,
         fused_geometry,
         interaction_state: [spring_x, spring_y, node.interaction.parallax, node.interaction.focus],
-        traffic_light: [
-            material.traffic_light.substrate_coverage.clamp(0.0, 1.0),
-            material.traffic_light.lower_substrate_coverage.clamp(0.0, 1.0),
-            material.traffic_light.lower_tint_coverage.clamp(0.0, 1.0),
-            material.traffic_light.angular_light.clamp(0.0, 2.0),
-        ],
-        traffic_light_light: [
-            material.traffic_light.light_angle.clamp(0.0, 1.0),
-            material.traffic_light.body_thickness.clamp(0.25, 3.0),
-            material.traffic_light.internal_scattering.clamp(0.0, 1.0),
-            material.traffic_light.side_edge_darkness.clamp(0.0, 4.0),
-        ],
-        traffic_light_edge: [
-            material.traffic_light.side_edge_width.clamp(0.25, 4.0),
-            material.traffic_light.light_softness.clamp(0.0, 1.0),
-            material.traffic_light.edge_side_bias.clamp(0.0, 1.0),
-            material.traffic_light.edge_side_angle.clamp(10.0, 80.0),
-        ],
         interaction_response: [
             material.interaction.hover_gain.clamp(0.0, 1.0),
             material.interaction.press_gain.clamp(0.0, 1.0),
             material.interaction.press_lift.clamp(0.0, 1.0),
             0.0,
-        ],
-        core_light: [
-            material.core_light.uniform_light.clamp(0.0, 1.0),
-            material.core_light.thin_light_gain.clamp(0.0, 1.0),
-            material.core_light.core_power.clamp(1.0, 8.0),
-            material.core_light.vertical_power.clamp(0.25, 4.0),
         ],
         bead_a: [
             material.bead.b1, material.bead.b2, material.bead.b3, material.bead.center_glow,
@@ -2706,18 +2668,6 @@ fn uniform_for_node(
             material.bead.caustic_light,
             material.bead.caustic_dark,
             material.bead.mode_dark,
-        ],
-        rim_profile: [
-            material.rim_profile.lateral_power.clamp(0.25, 16.0),
-            material.rim_profile.vertical_floor.clamp(0.0, 1.0),
-            material.rim_profile.grazing_power.clamp(0.1, 4.0),
-            0.0,
-        ],
-        core_light_gradient: [
-            material.core_light.core_lift.clamp(0.0, 1.0),
-            material.core_light.axial_glow.clamp(0.0, 1.0),
-            material.core_light.horizontal_power.clamp(0.05, 2.0),
-            0.0,
         ],
     }
 }
@@ -3627,8 +3577,8 @@ mod tests {
         assert!((shape_roundness(&circle) - 2.0).abs() < f32::EPSILON);
         // Keeps the Rust uniform in lockstep with the WGSL `Uniforms` struct:
         // adding a field on one side only would silently shift every following
-        // slot. 33 x 16 bytes, uniform address space.
-        assert_eq!(std::mem::size_of::<GlassUniform>(), 528);
+        // slot. 27 x 16 bytes, uniform address space.
+        assert_eq!(std::mem::size_of::<GlassUniform>(), 432);
     }
 
     #[test]
