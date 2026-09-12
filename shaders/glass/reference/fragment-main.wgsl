@@ -1147,14 +1147,21 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
   // is no backdrop transmission, refraction, or Fresnel -- so the control reads
   // as a baked bead rather than a glass node.
   if (isTrafficLightBead()) {
-    // `pixel` is y-up while the node centre is packed y-down, matching the
-    // convention the pointer/spring uniforms already use.
-    let beadCentre = vec2f(u.u_mouseSpring.x, u.u_resolution.y - u.u_mouseSpring.y);
-    let beadRadius = max(min(u.u_shapeWidth, u.u_shapeHeight) * 0.5, 1.0);
-    let offset = pixel - beadCentre;
-    let dist = length(offset);
-    let nx = offset.x / beadRadius;
-    let ny = offset.y / beadRadius;
+    // Derive the offset from the same control point the SDF uses (`p2` is the
+    // shape centre in the space `mainSDF` consumes), so the bead can never
+    // disagree with the shape's position and radius. Working in that normalised
+    // space avoids re-deriving the screen transform by hand.
+    let beadOffset = (vec2f(0.0) - pixel) / u.u_resolution.y - p2;
+    let beadRadiusN = max(
+      min(u.u_shapeWidth, u.u_shapeHeight) * 0.5 / u.u_resolution.y,
+      1e-6,
+    );
+    let distN = length(beadOffset);
+    let nx = beadOffset.x / beadRadiusN;
+    let ny = beadOffset.y / beadRadiusN;
+    // Back to physical pixels for the pixel-wide rim spans.
+    let beadRadius = beadRadiusN * u.u_resolution.y;
+    let dist = distN * u.u_resolution.y;
     let inside = beadRadius - dist;
 
     var bead = u.u_tint.rgb;
