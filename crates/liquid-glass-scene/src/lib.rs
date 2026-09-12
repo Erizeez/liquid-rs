@@ -540,19 +540,37 @@ impl ShadowStyle {
 /// reads against its rim.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CoreLight {
-    /// Strength of the uniform incident field across the body. This is the
-    /// dominant term for how bright the centre reads.
+    /// Strength of the flat incident field across the body.
     pub uniform_light: f32,
     /// Additional release of the same field toward the thinner lower
     /// hemisphere.
     pub thin_light_gain: f32,
+    /// Peak saturation lift at the optical centre of the droplet profile.
+    pub core_lift: f32,
+    /// Peak strength of the vertical axial glow.
+    pub axial_glow: f32,
+    /// Radial exponent of the core profile. `4.0` reproduces the reference
+    /// `(1 - t)^4` droplet falloff.
+    pub core_power: f32,
+    /// Exponent of the vertical gradient. Larger values pool the light lower.
+    pub vertical_power: f32,
+    /// Exponent of the horizontal roll-off. Smaller values widen the lit centre.
+    pub horizontal_power: f32,
 }
 
 impl CoreLight {
     /// The calibrated default.
     #[must_use]
     pub const fn new() -> Self {
-        Self { uniform_light: 0.045, thin_light_gain: 0.055 }
+        Self {
+            uniform_light: 0.045,
+            thin_light_gain: 0.055,
+            core_lift: 0.25,
+            axial_glow: 0.46,
+            core_power: 4.0,
+            vertical_power: 1.35,
+            horizontal_power: 0.25,
+        }
     }
 
     /// Clamps both strengths into range.
@@ -561,6 +579,11 @@ impl CoreLight {
         Self {
             uniform_light: self.uniform_light.clamp(0.0, 1.0),
             thin_light_gain: self.thin_light_gain.clamp(0.0, 1.0),
+            core_lift: self.core_lift.clamp(0.0, 1.0),
+            axial_glow: self.axial_glow.clamp(0.0, 1.0),
+            core_power: self.core_power.clamp(1.0, 8.0),
+            vertical_power: self.vertical_power.clamp(0.25, 4.0),
+            horizontal_power: self.horizontal_power.clamp(0.05, 2.0),
         }
     }
 }

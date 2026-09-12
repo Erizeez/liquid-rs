@@ -86,6 +86,8 @@ struct Uniforms {
   // x: uniform incident field, y: lower-hemisphere thin light gain
   // (`GlassMaterial::core_light`).
   u_coreLight: vec4f,
+  // x: core lift, y: axial glow, z: horizontal roll-off power
+  u_coreLightGradient: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -858,11 +860,29 @@ fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> 
   // Ease the lower release once more so the incident field reads as a broad,
   // soft material response instead of a concentrated lower-half glow.
   let softThinness = smoothstep(0.0, 1.0, thinness);
-  // Centre light, from `GlassMaterial::core_light`: a uniform incident field
-  // plus a smaller release toward the thinner lower hemisphere.
+  // Centre light, from `GlassMaterial::core_light`: a flat incident field, a
+  // smaller release toward the thinner lower hemisphere, and the droplet core.
+  //
+  // The reference appearance describes the core in screen-plane terms
+  // (`dy/r`, `dx/r`, `d/r`); on the sphere those are exactly the body normal's
+  // components, so the graded terms are derived from `bodyNormal` instead:
+  // `-z` is the radial falloff from the optical centre outward, `y` the
+  // vertical axis and `x` the horizontal roll-off.
+  let coreRadial = 1.0 - clamp(bodyNormal.z, 0.0, 1.0);
+  let coreFalloff = pow(coreRadial, clamp(u.u_coreLight.z, 1.0, 8.0));
+  let coreLift = (1.0 - coreFalloff) * u.u_coreLightGradient.x;
+  let vertical = clamp((bodyNormal.y + 0.15) / 1.15, 0.0, 1.0);
+  let verticalGlow = pow(vertical, clamp(u.u_coreLight.w, 0.25, 4.0));
+  let horizontalRolloff = pow(
+    max(1.0 - bodyNormal.x * bodyNormal.x, 0.0),
+    clamp(u.u_coreLightGradient.z, 0.05, 2.0),
+  );
+  let axialGlow = verticalGlow * horizontalRolloff * u.u_coreLightGradient.y;
   let uniformLight = (
     u.u_coreLight.x
       + u.u_coreLight.y * softThinness
+      + coreLift
+      + axialGlow
   ) * clamp(u.u_tint.a, 0.0, 1.0) * u.u_adaptive.y;
   let highlight = 0.0;
   // Lateral grazing normals receive the stronger side attenuation. There is
