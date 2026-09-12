@@ -34,6 +34,14 @@ const TRAFFIC_LIGHT_PHYSICAL_TINT_COVERAGE: f32 = 0.95;
 // These deltas are linear-light gains; R reaches the SDR ceiling while G/B
 // rise only enough to reproduce the native pressed-state softness.
 const TRAFFIC_LIGHT_RED_PRESS_LIFT: vec3f = vec3f(0.11, 0.072, 0.052);
+// Whole-control press response. The native control brightens as a whole when
+// held, so these are spatially uniform gains on the composed body rather than
+// a highlight: there is deliberately no pointer falloff, which is what stops a
+// press from reading as a cursor spot. `lift` preserves hue where a channel is
+// already clipped at the SDR ceiling, so red still rises in G/B while yellow
+// and green rise in every channel.
+const TRAFFIC_LIGHT_PRESS_BODY_GAIN: f32 = 0.12;
+const TRAFFIC_LIGHT_PRESS_BODY_LIFT: f32 = 0.06;
 
 struct Uniforms {
   u_resolution: vec2f,
@@ -700,13 +708,17 @@ fn interactionLight(pixel: vec2f) -> f32 {
   if (u.u_interaction <= 0.0001 || featureEnabled(FEATURE_REDUCED_MOTION)) {
     return 0.0;
   }
+  // Traffic-light hover is coordinated at the group level so its glyphs reveal
+  // together; letting that flag drive a per-control optical spot would light up
+  // every sibling button. Their press response is a whole-body brightening (see
+  // the compose stage below), so this pointer-localised excitation does not
+  // apply to them at all.
+  if (isTrafficLight()) {
+    return 0.0;
+  }
   let radius = max(min(u.u_shapeWidth, u.u_shapeHeight) * u.u_dpr * 0.70, 32.0);
   let springPointer = mix(u.u_mouse, u.u_interactionState.xy, 0.65);
-  // Traffic-light hover is coordinated at the group level so its glyphs can
-  // reveal together, but its optical press response is per control. Do not
-  // let the group hover flag create a bright spot in every sibling button.
-  let opticalInteraction = select(u.u_interaction, u.u_press, isTrafficLight());
-  return exp(-length(pixel - springPointer) / radius) * opticalInteraction;
+  return exp(-length(pixel - springPointer) / radius) * u.u_interaction;
 }
 
 fn pressLight(pixel: vec2f) -> f32 {
@@ -1250,7 +1262,9 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
     );
     outColor = vec4f(mix(outColor.rgb, ambientBackdrop(v_uv), ambientStrength), outColor.a);
     let interaction = interactionLight(pixel);
-    outColor = vec4f(mix(outColor.rgb, vec3f(1.0), clamp(interaction * 0.12, 0.0, 0.12)), outColor.a);
+    if (!isTrafficLight()) {
+      outColor = vec4f(mix(outColor.rgb, vec3f(1.0), clamp(interaction * 0.12, 0.0, 0.12)), outColor.a);
+    }
     let press = pressLight(pixel);
     // Traffic lights use the calibrated press-state lift below. Keep the
     // legacy pigment excitation for other glass variants only; applying it
@@ -1287,6 +1301,26 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
           * (1.0 - body.upperAbsorption),
         outColor.a,
       );
+    }
+
+    if (isTrafficLight() && !featureEnabled(FEATURE_REDUCED_MOTION)) {
+      // Whole-control press brightening.
+      //
+      // This runs *after* the body response on purpose: the sphere's lower half
+      // is transmission-mixed and its rim carries the absorbing curvature
+      // shadow, so an earlier gain would brighten only part of the control. A
+      // single uniform gain on the composed body is what makes a press read as
+      // "the control lit up" instead of "a highlight moved in". It is applied
+      // after the shadow terms too, so the dark perimeter keeps its relative
+      // depth while the whole control rises together.
+      let trafficPress = clamp(u.u_press, 0.0, 1.0);
+      if (trafficPress > 0.0) {
+        outColor = vec4f(
+          outColor.rgb * (1.0 + TRAFFIC_LIGHT_PRESS_BODY_GAIN * trafficPress)
+            + u.u_tint.rgb * (TRAFFIC_LIGHT_PRESS_BODY_LIFT * trafficPress),
+          outColor.a,
+        );
+      }
     }
   }
 

@@ -3573,6 +3573,9 @@ mod tests {
         assert!((shape_roundness(&circular) - 2.0).abs() < f32::EPSILON);
         assert!((shape_roundness(&capsule) - 2.0).abs() < f32::EPSILON);
         assert!((shape_roundness(&circle) - 2.0).abs() < f32::EPSILON);
+        // Keeps the Rust uniform in lockstep with the WGSL `Uniforms` struct:
+        // adding a field on one side only would silently shift every following
+        // slot. 26 x 16 bytes, uniform address space.
         assert_eq!(std::mem::size_of::<GlassUniform>(), 416);
     }
 
