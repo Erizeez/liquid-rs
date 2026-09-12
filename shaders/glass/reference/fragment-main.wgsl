@@ -1137,6 +1137,38 @@ fn materialInterfaceResponse(
   );
 }
 
+fn encodeSrgbChannel(value: f32) -> f32 {
+  let v = clamp(value, 0.0, 1.0);
+  if (v <= 0.0031308) {
+    return v * 12.92;
+  }
+  return 1.055 * pow(v, 1.0 / 2.4) - 0.055;
+}
+
+fn decodeSrgbChannel(value: f32) -> f32 {
+  let v = clamp(value, 0.0, 1.0);
+  if (v <= 0.04045) {
+    return v / 12.92;
+  }
+  return pow((v + 0.055) / 1.055, 2.4);
+}
+
+fn encodeSrgb(colour: vec3f) -> vec3f {
+  return vec3f(
+    encodeSrgbChannel(colour.r),
+    encodeSrgbChannel(colour.g),
+    encodeSrgbChannel(colour.b),
+  );
+}
+
+fn decodeSrgb(colour: vec3f) -> vec3f {
+  return vec3f(
+    decodeSrgbChannel(colour.r),
+    decodeSrgbChannel(colour.g),
+    decodeSrgbChannel(colour.b),
+  );
+}
+
 @fragment
 fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @location(0) vec4f {
   let u_resolution1x = u.u_resolution / u.u_dpr;
@@ -1179,6 +1211,13 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
 
     var bead = u.u_tint.rgb;
     if (inside > 0.0) {
+      // B's rasteriser ran every one of these constants on sRGB-encoded channel
+      // values and wrote the result out as sRGB bytes. The shader otherwise
+      // works in linear light, where the same numbers land noticeably lighter
+      // (the 0.88 base is a 12% reduction in sRGB but only 1.5% in linear).
+      // Encode into that space here and decode at the end, so the render target
+      // receives the value the rasteriser would have written.
+      let tintSrgb = encodeSrgb(u.u_tint.rgb);
       let tDist = clamp(inside / beadRadius, 0.0, 1.0);
       let q = 1.0 - tDist;
       let falloff = q * q * q * q
@@ -1193,7 +1232,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       let axial = pow(vertical, 1.35)
         * pow(max(1.0 - nx * nx, 0.0), 0.25) * 0.42 * glow;
       let coreLift = (1.0 - falloff) * clamp(u.u_beadB.x, 0.0, 0.5) * glow;
-      var colour = u.u_tint.rgb * (0.88 + coreLift + axial);
+      var colour = tintSrgb * (0.88 + coreLift + axial);
 
       // Whole-control pointer response, shared with every other variant.
       let engaged = clamp(u.u_interaction, 0.0, 1.0);
@@ -1201,7 +1240,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
       colour *= 1.0
         + u.u_interactionResponse.x * engaged
         + u.u_interactionResponse.y * pressed;
-      colour += u.u_tint.rgb * u.u_interactionResponse.z * pressed;
+      colour += tintSrgb * u.u_interactionResponse.z * pressed;
 
       // Mode-exclusive rim: a dark wall on the lateral sides for the light
       // appearance, a bright edge on the vertical arcs for the dark one.
@@ -1222,7 +1261,7 @@ fn fs_main(@builtin(position) frag_coord: vec4f, @location(0) v_uv: vec2f) -> @l
         * clamp(u.u_beadB.y, 0.0, 2.0);
       colour = max(colour - vec3f(darkDrop * (1.0 - dark)), vec3f(0.0));
       colour = min(colour + vec3f(bright * dark), vec3f(1.0));
-      bead = colour;
+      bead = decodeSrgb(colour);
     }
 
     // Re-emit the sampled backdrop outside the disc. The glass pass replaces
