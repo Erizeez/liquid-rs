@@ -2548,9 +2548,12 @@ fn uniform_for_node(
         feature_flags |= FEATURE_TRAFFIC_LIGHT;
     }
     if material.variant == GlassVariant::TrafficLightBead {
-        // Shares the traffic-light antialiasing and glyph treatment, then
-        // returns early instead of composing physical glass.
-        feature_flags |= FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_BEAD;
+        // Shares the traffic-light antialiasing, glyph treatment, and the exact
+        // circular SDF path the physical variant uses -- that path is what makes
+        // the silhouette a whole circle rather than a slice of the generic
+        // capsule. The shader still returns early instead of composing glass.
+        feature_flags |=
+            FEATURE_TRAFFIC_LIGHT | FEATURE_TRAFFIC_LIGHT_PHYSICAL | FEATURE_TRAFFIC_LIGHT_BEAD;
     }
     if material.variant == GlassVariant::TrafficLightPhysical {
         feature_flags |= FEATURE_TRAFFIC_LIGHT_PHYSICAL;
