@@ -24,8 +24,6 @@ const TRAFFIC_LIGHT_EDGE_DARKNESS: f32 = 1.08;
 const TRAFFIC_LIGHT_EDGE_SHARPNESS: f32 = 8.00;
 const TRAFFIC_LIGHT_VERTICAL_EDGE_WIDTH: f32 = 0.42;
 const TRAFFIC_LIGHT_VERTICAL_EDGE_SHARPNESS: f32 = 8.00;
-const TRAFFIC_LIGHT_SIDE_TRANSITION_START: f32 = 0.67;
-const TRAFFIC_LIGHT_SIDE_TRANSITION_END: f32 = 0.77;
 const TRAFFIC_LIGHT_PHYSICAL_TINT_COVERAGE: f32 = 0.95;
 // Press-state lift measured from the native control: normal red is about
 // sRGB (242, 94, 83), while the pressed state is about (255, 119, 104).
@@ -88,6 +86,9 @@ struct Uniforms {
   u_coreLight: vec4f,
   // x: core lift, y: axial glow, z: horizontal roll-off power
   u_coreLightGradient: vec4f,
+  // x: lateral power, y: vertical floor, z: grazing power
+  // (`GlassMaterial::rim_profile`).
+  u_rimProfile: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -908,11 +909,10 @@ fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> 
   // transition is centred around a 45-degree surface angle instead of
   // gradually spreading over the entire quadrant.
   let lateralAngle = clamp(abs(bodyNormal.x), 0.0, 1.0);
-  let lateralEdge = smoothstep(
-    TRAFFIC_LIGHT_SIDE_TRANSITION_START,
-    TRAFFIC_LIGHT_SIDE_TRANSITION_END,
-    lateralAngle,
-  );
+  // The reference weights the lateral wall by a power of the body normal
+  // (`|nx|^2`) rather than a fixed transition, which concentrates the absorbing
+  // rim on the left and right while leaving a residual on the vertical arcs.
+  let lateralEdge = pow(lateralAngle, clamp(u.u_rimProfile.x, 0.25, 16.0));
   let edgeWidthScale = mix(
     TRAFFIC_LIGHT_VERTICAL_EDGE_WIDTH,
     1.0,
@@ -939,7 +939,10 @@ fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> 
     smoothstep(0.0, 1.0, coatingPosition),
     edgeSharpness,
   );
-  let grazingCurvature = pow(clamp(1.0 - bodyNormal.z, 0.0, 1.0), 0.85);
+  let grazingCurvature = pow(
+    clamp(1.0 - bodyNormal.z, 0.0, 1.0),
+    clamp(u.u_rimProfile.z, 0.1, 4.0),
+  );
   // Match the search field's directional edge response: the lateral sides
   // turn away from the incident field and absorb more, while the upper and
   // lower contour keeps a softer residual edge. This is derived from the
@@ -951,7 +954,11 @@ fn trafficLightBodyResponse(merged: f32, p1: vec2f, p2: vec2f, pixel: vec2f) -> 
   // floor makes the dark material response collapse into two lateral bars;
   // the native control reads as one continuous rounded perimeter, with the
   // sides still substantially darker than the top and bottom.
-  let directionalAbsorption = mix(0.28, 1.0, lateralEdge);
+  let directionalAbsorption = mix(
+    clamp(u.u_rimProfile.y, 0.0, 1.0),
+    1.0,
+    lateralEdge,
+  );
   let coatingAbsorption = coatingBand
     * mix(0.24, 0.82, grazingCurvature)
     * directionalAbsorption

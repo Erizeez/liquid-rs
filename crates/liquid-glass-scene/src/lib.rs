@@ -594,6 +594,49 @@ impl Default for CoreLight {
     }
 }
 
+/// Directional shaping of a spherical control's absorbing rim.
+///
+/// The reference appearance concentrates the dark rim strictly on the lateral
+/// (left/right) sides and keeps a residual floor on the upper and lower arcs,
+/// expressed as a power of the body normal rather than a fixed transition.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RimProfile {
+    /// Exponent applied to `|normal.x|` for the lateral weight. `2.0`
+    /// reproduces the reference `|nx|^2` concentration.
+    pub lateral_power: f32,
+    /// Residual absorption kept on the upper and lower arcs, where the lateral
+    /// weight is zero.
+    pub vertical_floor: f32,
+    /// Exponent applied to the grazing term (`1 - normal.z`). Larger values
+    /// keep the absorption closer to the silhouette.
+    pub grazing_power: f32,
+}
+
+impl RimProfile {
+    /// The calibrated default: the reference `|nx|^2` lateral concentration, a
+    /// 0.28 residual on the vertical arcs, and the existing grazing falloff.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { lateral_power: 2.0, vertical_floor: 0.28, grazing_power: 0.85 }
+    }
+
+    /// Clamps every exponent and weight into range.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        Self {
+            lateral_power: self.lateral_power.clamp(0.25, 16.0),
+            vertical_floor: self.vertical_floor.clamp(0.0, 1.0),
+            grazing_power: self.grazing_power.clamp(0.1, 4.0),
+        }
+    }
+}
+
+impl Default for RimProfile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// How a glass control's *material* responds to pointer engagement.
 ///
 /// Engagement is a whole-control brightening, not a highlight: the composed
@@ -681,6 +724,8 @@ pub struct GlassMaterial {
     pub interaction: InteractionResponse,
     /// Centre light of a spherical body (traffic-light variants).
     pub core_light: CoreLight,
+    /// Directional shaping of the spherical absorbing rim.
+    pub rim_profile: RimProfile,
 }
 
 impl GlassMaterial {
@@ -709,6 +754,7 @@ impl GlassMaterial {
             adaptive: AdaptiveStyle::system(),
             interaction: InteractionResponse::new(),
             core_light: CoreLight::new(),
+            rim_profile: RimProfile::new(),
         }
     }
 
